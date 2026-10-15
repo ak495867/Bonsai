@@ -3,13 +3,22 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from typing import Iterable
+from scipy.stats import norm
 import numpy as np
 import pandas as pd
 
 from .decay import estimate_exponential_decay
 from .drivers import strategy_driver_exposure
-from .engine import build_ic_table, build_signal, calculate_turnover, forward_returns, newey_west_ic_stats
+from .engine import (
+    build_ic_table,
+    build_signal,
+    calculate_turnover,
+    forward_returns,
+    newey_west_ic_stats,
+)
 from .models import MarketPanel, ObservedStrategy, StrategySpec
+from .portfolio import portfolio_performance_stats, simulate_long_short_pnl
+from .validation import benjamini_hochberg_fdr, deflated_sharpe_ratio
 
 
 def evaluate_strategy(
@@ -19,6 +28,8 @@ def evaluate_strategy(
     method: str = "spearman",
     min_obs: int = 10,
     precomputed_forward: dict[int, pd.DataFrame] | None = None,
+    simulate_pnl: bool = False,
+    cost_bps: float = 5.0,
 ) -> ObservedStrategy:
     signal = build_signal(panel, spec)
     forward = (
@@ -40,6 +51,18 @@ def evaluate_strategy(
         "ic_hac_tstat": nw_stats["hac_t_stat"],
         "ic_ir": nw_stats["ir"],
     }
+    pnl_df = None
+    if simulate_pnl:
+        pnl_df = simulate_long_short_pnl(signal, panel.returns, cost_bps=cost_bps)
+        gross_stats = portfolio_performance_stats(pnl_df["gross_pnl"])
+        net_stats = portfolio_performance_stats(pnl_df["net_pnl"])
+        stats_dict["gross_sharpe"] = gross_stats["sharpe_ratio"]
+        stats_dict["net_sharpe"] = net_stats["sharpe_ratio"]
+        stats_dict["net_annualized_return"] = net_stats["annualized_return"]
+        stats_dict["net_max_drawdown"] = net_stats["max_drawdown"]
+        stats_dict["net_calmar"] = net_stats["calmar_ratio"]
+        stats_dict["net_win_rate"] = net_stats["win_rate"]
+
     drivers_with_stats = dict(drivers)
     drivers_with_stats.update(stats_dict)
     return ObservedStrategy(
@@ -49,6 +72,7 @@ def evaluate_strategy(
         ic_by_horizon=ic_table,
         decay=decay,
         drivers=drivers_with_stats,
+        pnl=pnl_df,
     )
 
 
@@ -78,6 +102,8 @@ def run_observatory(
     method: str = "spearman",
     min_obs: int = 10,
     workers: int = 1,
+    simulate_pnl: bool = False,
+    cost_bps: float = 5.0,
 ) -> tuple[pd.DataFrame, dict[str, ObservedStrategy]]:
     panel.validate()
     specs = list(strategies)
@@ -90,7 +116,14 @@ def run_observatory(
         raise ValueError("strategy_id values must be unique")
     forward = forward_returns(panel.returns, horizons)
     evaluate = lambda spec: evaluate_strategy(
-        panel, spec, horizons, method, min_obs, precomputed_forward=forward
+        panel,
+        spec,
+        horizons,
+        method,
+        min_obs,
+        precomputed_forward=forward,
+        simulate_pnl=simulate_pnl,
+        cost_bps=cost_bps,
     )
     if workers == 1:
         evaluated = [evaluate(spec) for spec in specs]
@@ -99,6 +132,21 @@ def run_observatory(
             evaluated = list(executor.map(evaluate, specs))
     evaluated_map = {result.spec.strategy_id: result for result in evaluated}
     summary = pd.DataFrame([_summary_row(result) for result in evaluated])
+
+    if "ic_hac_tstat" in summary.columns and len(summary) > 0:
+        t_vals = np.abs(summary["ic_hac_tstat"].to_numpy(dtype=float))
+        p_vals = 2.0 * (1.0 - norm.cdf(np.where(np.isfinite(t_vals), t_vals, 0.0)))
+        summary["is_fdr_significant"] = benjamini_hochberg_fdr(p_vals)
+
+    if simulate_pnl and "net_sharpe" in summary.columns and len(summary) > 1:
+        net_sharpes = summary["net_sharpe"].to_numpy(dtype=float)
+        n_periods = len(panel.returns)
+        dsr_vals = [
+            deflated_sharpe_ratio(sr, net_sharpes, n_periods)
+            for sr in net_sharpes
+        ]
+        summary["deflated_sharpe_ratio"] = dsr_vals
+
     return summary, evaluated_map
 
 
