@@ -4,13 +4,18 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bonsai-alpha-decay-observatory"
-version = "0.1.0"
-description = "A bias-controlled research engine for measuring alpha decay and its drivers"
+version = "0.2.0"
+description = "Institutional-grade alpha decay observatory, execution simulator, and bias-controlled quant research engine"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {file = "LICENSE"}
 authors = [{name = "Bonsai Research"}]
-dependencies = ["numpy>=1.24", "pandas>=2.0"]
+dependencies = [
+    "numpy>=1.24",
+    "pandas>=2.0",
+    "scipy>=1.10",
+    "pyarrow>=10.0"
+]
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
