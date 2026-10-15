@@ -3,13 +3,12 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from typing import Iterable
-
 import numpy as np
 import pandas as pd
 
 from .decay import estimate_exponential_decay
 from .drivers import strategy_driver_exposure
-from .engine import build_ic_table, build_signal, forward_returns
+from .engine import build_ic_table, build_signal, calculate_turnover, forward_returns, newey_west_ic_stats
 from .models import MarketPanel, ObservedStrategy, StrategySpec
 
 
@@ -19,24 +18,42 @@ def evaluate_strategy(
     horizons: Iterable[int],
     method: str = "spearman",
     min_obs: int = 10,
+    precomputed_forward: dict[int, pd.DataFrame] | None = None,
 ) -> ObservedStrategy:
     signal = build_signal(panel, spec)
-    forward = forward_returns(panel.returns, horizons)
+    forward = (
+        precomputed_forward
+        if precomputed_forward is not None
+        else forward_returns(panel.returns, horizons)
+    )
     ic_table = build_ic_table(signal, forward, method, min_obs)
     mean_ic = ic_table.mean(axis=0)
     decay = estimate_exponential_decay(mean_ic)
     drivers = strategy_driver_exposure(panel, signal)
+    turnover_series = calculate_turnover(signal)
+    mean_turnover = float(turnover_series.mean()) if len(turnover_series) > 0 else np.nan
+    h1_col = ic_table.iloc[:, 0]
+    nw_stats = newey_west_ic_stats(h1_col)
+    stats_dict = {
+        "strategy_turnover": mean_turnover,
+        "ic_tstat": nw_stats["t_stat"],
+        "ic_hac_tstat": nw_stats["hac_t_stat"],
+        "ic_ir": nw_stats["ir"],
+    }
+    drivers_with_stats = dict(drivers)
+    drivers_with_stats.update(stats_dict)
     return ObservedStrategy(
         spec=spec,
         signal=signal,
         forward_returns=forward,
         ic_by_horizon=ic_table,
         decay=decay,
-        drivers=drivers,
+        drivers=drivers_with_stats,
     )
 
 
 def _summary_row(result: ObservedStrategy) -> dict[str, object]:
+    h1_col = result.ic_by_horizon.iloc[:, 0]
     row = {
         "strategy_id": result.spec.strategy_id,
         "transform": result.spec.transform,
@@ -45,9 +62,9 @@ def _summary_row(result: ObservedStrategy) -> dict[str, object]:
         "feature_count": len(result.spec.feature_columns),
         "features": "|".join(result.spec.feature_columns),
         "weights": "|".join(f"{value:.8g}" for value in result.spec.weights),
-        "mean_ic": float(result.ic_by_horizon.iloc[:, 0].mean()),
-        "median_ic": float(result.ic_by_horizon.iloc[:, 0].median()),
-        "ic_volatility": float(result.ic_by_horizon.iloc[:, 0].std()),
+        "mean_ic": float(h1_col.mean()),
+        "median_ic": float(h1_col.median()),
+        "ic_volatility": float(h1_col.std()),
     }
     row.update(result.decay)
     row.update(result.drivers)
@@ -71,7 +88,10 @@ def run_observatory(
     unique_ids = [spec.strategy_id for spec in specs]
     if len(set(unique_ids)) != len(unique_ids):
         raise ValueError("strategy_id values must be unique")
-    evaluate = lambda spec: evaluate_strategy(panel, spec, horizons, method, min_obs)
+    forward = forward_returns(panel.returns, horizons)
+    evaluate = lambda spec: evaluate_strategy(
+        panel, spec, horizons, method, min_obs, precomputed_forward=forward
+    )
     if workers == 1:
         evaluated = [evaluate(spec) for spec in specs]
     else:
@@ -83,19 +103,20 @@ def run_observatory(
 
 
 def ic_long_table(results: dict[str, ObservedStrategy]) -> pd.DataFrame:
-    rows = []
+    frames = []
     for strategy_id, result in results.items():
-        for date, values in result.ic_by_horizon.iterrows():
-            for horizon, ic in values.items():
-                rows.append(
-                    {
-                        "strategy_id": strategy_id,
-                        "date": date,
-                        "horizon": int(horizon),
-                        "ic": float(ic) if pd.notna(ic) else np.nan,
-                    }
-                )
-    return pd.DataFrame(rows)
+        if result.ic_by_horizon.empty:
+            continue
+        melted = result.ic_by_horizon.reset_index().melt(
+            id_vars=["index"], var_name="horizon", value_name="ic"
+        )
+        melted.rename(columns={"index": "date"}, inplace=True)
+        melted["horizon"] = melted["horizon"].astype(int)
+        melted.insert(0, "strategy_id", strategy_id)
+        frames.append(melted)
+    if not frames:
+        return pd.DataFrame(columns=["strategy_id", "date", "horizon", "ic"])
+    return pd.concat(frames, ignore_index=True)
 
 
 def strategy_specs_to_frame(strategies: Iterable[StrategySpec]) -> pd.DataFrame:

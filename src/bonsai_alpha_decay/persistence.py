@@ -16,12 +16,15 @@ def ensure_directory(path: str | Path) -> Path:
 def write_frame(frame: pd.DataFrame, path: str | Path) -> Path:
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    if destination.suffix.lower() == ".csv":
+    ext = destination.suffix.lower()
+    if ext == ".csv":
         frame.to_csv(destination, index=True)
-    elif destination.suffix.lower() == ".json":
+    elif ext == ".json":
         frame.to_json(destination, orient="records", date_format="iso")
+    elif ext == ".parquet":
+        frame.to_parquet(destination)
     else:
-        raise ValueError("supported frame formats are csv and json")
+        raise ValueError("supported frame formats are csv, json, and parquet")
     return destination
 
 
@@ -37,8 +40,11 @@ def write_json(payload: dict[str, Any], path: str | Path) -> Path:
 
 def read_frame(path: str | Path) -> pd.DataFrame:
     source = Path(path)
-    if source.suffix.lower() == ".csv":
+    ext = source.suffix.lower()
+    if ext == ".csv":
         return pd.read_csv(source, index_col=0, parse_dates=True)
-    if source.suffix.lower() == ".json":
+    if ext == ".json":
         return pd.read_json(source)
-    raise ValueError("supported frame formats are csv and json")
+    if ext == ".parquet":
+        return pd.read_parquet(source)
+    raise ValueError("supported frame formats are csv, json, and parquet")

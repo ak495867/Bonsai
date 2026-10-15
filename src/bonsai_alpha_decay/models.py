@@ -13,6 +13,7 @@ class MarketPanel:
     features: pd.DataFrame
     returns: pd.DataFrame
     metadata: pd.DataFrame
+    mask: pd.DataFrame | None = None
 
     def validate(self) -> None:
         frames = {
@@ -40,6 +41,8 @@ class MarketPanel:
             raise ValueError("prices must be strictly positive")
         if not self.metadata.index.is_unique:
             raise ValueError("metadata index must be unique")
+        if not set(self.returns.columns).issubset(self.metadata.index):
+            raise ValueError("metadata index must contain all assets present in returns")
         required = {
             "market_cap",
             "volatility",
@@ -51,6 +54,13 @@ class MarketPanel:
         missing = required.difference(self.metadata.columns)
         if missing:
             raise ValueError(f"metadata is missing required columns: {sorted(missing)}")
+        if self.mask is not None:
+            if not isinstance(self.mask.index, pd.DatetimeIndex):
+                raise TypeError("mask must use a DatetimeIndex")
+            if not self.mask.index.equals(self.prices.index):
+                raise ValueError("mask must share an identical date index with prices")
+            if not self.mask.columns.equals(self.returns.columns):
+                raise ValueError("mask must share identical asset columns with returns")
 
     def cutoff(self, as_of: pd.Timestamp) -> MarketPanel:
         cutoff = pd.Timestamp(as_of)
@@ -59,6 +69,7 @@ class MarketPanel:
             features=self.features.loc[:cutoff].copy(),
             returns=self.returns.loc[:cutoff].copy(),
             metadata=self.metadata.copy(),
+            mask=self.mask.loc[:cutoff].copy() if self.mask is not None else None,
         )
 
 

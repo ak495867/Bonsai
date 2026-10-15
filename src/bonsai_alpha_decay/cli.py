@@ -45,6 +45,8 @@ def run_main() -> None:
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--output", default="reports/run")
     parser.add_argument("--min-obs", type=int, default=10)
+    parser.add_argument("--format", choices=["csv", "parquet"], default="csv")
+    parser.add_argument("--ridge-alpha", type=float, default=0.0)
     args = parser.parse_args()
     output = Path(args.output)
     config = SyntheticConfig(
@@ -56,10 +58,11 @@ def run_main() -> None:
     summary, results = run_observatory(
         panel, strategies, workers=args.workers, min_obs=args.min_obs
     )
-    write_frame(summary, output / "strategy_summary.csv")
-    write_frame(ic_long_table(results), output / "ic_long.csv")
-    write_frame(strategy_specs_to_frame(strategies), output / "strategies.csv")
-    driver_model = fit_driver_model(summary, "lambda")
+    ext = f".{args.format}"
+    write_frame(summary, output / f"strategy_summary{ext}")
+    write_frame(ic_long_table(results), output / f"ic_long{ext}")
+    write_frame(strategy_specs_to_frame(strategies), output / f"strategies{ext}")
+    driver_model = fit_driver_model(summary, "lambda", alpha=args.ridge_alpha)
     write_json(
         {
             "panel": config.__dict__,
@@ -68,9 +71,20 @@ def run_main() -> None:
         },
         output / "run_manifest.json",
     )
-    top = summary.sort_values("mean_ic", ascending=False).head(10)[
-        ["strategy_id", "mean_ic", "half_life", "lambda", "status"]
+    display_cols = [
+        col
+        for col in [
+            "strategy_id",
+            "mean_ic",
+            "ic_hac_tstat",
+            "half_life",
+            "lambda",
+            "strategy_turnover",
+            "status",
+        ]
+        if col in summary.columns
     ]
+    top = summary.sort_values("mean_ic", ascending=False).head(10)[display_cols]
     print(top.to_string(index=False))
 
 
