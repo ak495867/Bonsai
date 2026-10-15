@@ -109,6 +109,123 @@ def estimate_exponential_decay(
     }
 
 
+def estimate_power_law_decay(
+    ic_by_horizon: pd.Series | dict[float, float],
+) -> dict[str, Any]:
+    series = pd.Series(ic_by_horizon, dtype=float).sort_index()
+    valid = series.replace([np.inf, -np.inf], np.nan).dropna()
+    valid = valid[(valid > 0) & (valid.index > 0)]
+    if len(valid) < 2 or valid.index.nunique() < 2:
+        return {
+            "ic0": np.nan,
+            "alpha": np.nan,
+            "r2": np.nan,
+            "status": "insufficient_points",
+        }
+    x = np.log(valid.index.to_numpy(dtype=float))
+    y = np.log(valid.to_numpy(dtype=float))
+    design = np.column_stack([np.ones(len(x)), x])
+    intercept, slope = np.linalg.lstsq(design, y, rcond=None)[0]
+    fitted = design @ np.array([intercept, slope])
+    res = y - fitted
+    tot = y - y.mean()
+    r2 = float(1.0 - np.dot(res, res) / np.dot(tot, tot)) if np.dot(tot, tot) > 0 else np.nan
+    alpha = float(-slope)
+    return {
+        "ic0": float(np.exp(intercept)),
+        "alpha": alpha,
+        "r2": r2,
+        "status": "ok" if alpha > 0 else "non_decay_or_growth",
+    }
+
+
+def estimate_hump_decay(
+    ic_by_horizon: pd.Series | dict[float, float],
+) -> dict[str, Any]:
+    series = pd.Series(ic_by_horizon, dtype=float).sort_index()
+    valid = series.replace([np.inf, -np.inf], np.nan).dropna()
+    valid = valid[(valid > 0) & (valid.index > 0)]
+    if len(valid) < 3 or valid.index.nunique() < 3:
+        return {
+            "scale": np.nan,
+            "beta": np.nan,
+            "lambda": np.nan,
+            "peak_horizon": np.nan,
+            "r2": np.nan,
+            "status": "insufficient_points",
+        }
+    h = valid.index.to_numpy(dtype=float)
+    y = np.log(valid.to_numpy(dtype=float))
+    design = np.column_stack([np.ones(len(h)), np.log(h), h])
+    coeffs = np.linalg.lstsq(design, y, rcond=None)[0]
+    fitted = design @ coeffs
+    res = y - fitted
+    tot = y - y.mean()
+    r2 = float(1.0 - np.dot(res, res) / np.dot(tot, tot)) if np.dot(tot, tot) > 0 else np.nan
+    beta = float(coeffs[1])
+    decay_rate = float(-coeffs[2])
+    peak_h = float(beta / decay_rate) if (decay_rate > 0 and beta > 0) else 1.0
+    return {
+        "scale": float(np.exp(coeffs[0])),
+        "beta": beta,
+        "lambda": decay_rate,
+        "peak_horizon": peak_h,
+        "r2": r2,
+        "status": "ok" if (decay_rate > 0) else "non_decay_or_growth",
+    }
+
+
+def estimate_decay_family(
+    ic_by_horizon: pd.Series | dict[float, float],
+) -> dict[str, Any]:
+    series = pd.Series(ic_by_horizon, dtype=float).sort_index()
+    valid = series.replace([np.inf, -np.inf], np.nan).dropna()
+    valid = valid[(valid > 0) & (valid.index > 0)]
+    n = len(valid)
+    if n < 3:
+        exp_res = estimate_exponential_decay(series)
+        return {
+            "best_model": "exponential",
+            "models": {"exponential": exp_res},
+            "aic": {},
+        }
+    h = valid.index.to_numpy(dtype=float)
+    y = valid.to_numpy(dtype=float)
+    exp_fit = estimate_exponential_decay(valid)
+    pow_fit = estimate_power_law_decay(valid)
+    hump_fit = estimate_hump_decay(valid)
+
+    def _aic(fitted_y: np.ndarray, k: int) -> float:
+        res = y - fitted_y
+        rss = float(np.dot(res, res))
+        if rss <= 1e-12:
+            return -np.inf
+        return float(n * np.log(rss / n) + 2 * k)
+
+    exp_pred = exp_fit["ic0"] * np.exp(-exp_fit["lambda"] * h) if np.isfinite(exp_fit["ic0"]) else np.full(n, np.nan)
+    pow_pred = pow_fit["ic0"] * (h ** -pow_fit["alpha"]) if np.isfinite(pow_fit["ic0"]) else np.full(n, np.nan)
+    hump_pred = hump_fit["scale"] * (h ** hump_fit["beta"]) * np.exp(-hump_fit["lambda"] * h) if np.isfinite(hump_fit["scale"]) else np.full(n, np.nan)
+
+    aic_dict = {}
+    if np.isfinite(exp_pred).all():
+        aic_dict["exponential"] = _aic(exp_pred, 2)
+    if np.isfinite(pow_pred).all():
+        aic_dict["power_law"] = _aic(pow_pred, 2)
+    if np.isfinite(hump_pred).all():
+        aic_dict["hump"] = _aic(hump_pred, 3)
+
+    best_model = min(aic_dict, key=aic_dict.get) if aic_dict else "exponential"
+    return {
+        "best_model": best_model,
+        "models": {
+            "exponential": exp_fit,
+            "power_law": pow_fit,
+            "hump": hump_fit,
+        },
+        "aic": aic_dict,
+    }
+
+
 def bootstrap_decay(
     ic_by_horizon: pd.Series, samples: int = 250, seed: int = 0
 ) -> pd.DataFrame:

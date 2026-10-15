@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Sequence
 import numpy as np
 import pandas as pd
 
@@ -10,6 +10,11 @@ def simulate_long_short_pnl(
     returns: pd.DataFrame,
     quantiles: int = 5,
     cost_bps: float = 5.0,
+    aum: float = 1e7,
+    adv: pd.DataFrame | None = None,
+    volatility: pd.DataFrame | None = None,
+    impact_gamma: float = 0.0,
+    borrow_fee_bps: float = 50.0,
 ) -> pd.DataFrame:
     if not signal.index.equals(returns.index) or not signal.columns.equals(returns.columns):
         raise ValueError("signal and returns must share identical index and columns")
@@ -27,16 +32,38 @@ def simulate_long_short_pnl(
     net_w = long_w - short_w
     active_weights = net_w.shift(1).fillna(0.0)
     gross_pnl = (active_weights * returns).sum(axis=1)
-    turnover = net_w.diff().abs().sum(axis=1) * 0.5
-    cost = turnover * (cost_bps / 10000.0)
-    net_pnl = gross_pnl - cost
+
+    delta_w = net_w.diff().abs()
+    delta_w.iloc[0] = net_w.iloc[0].abs()
+    turnover = delta_w.sum(axis=1) * 0.5
+    linear_fee = turnover * (cost_bps / 10000.0)
+
+    if impact_gamma > 0.0 and adv is not None and volatility is not None:
+        trade_dollar = delta_w * aum
+        adv_clean = adv.reindex(index=signal.index, columns=signal.columns).replace(0.0, np.nan).fillna(1e6)
+        vol_clean = volatility.reindex(index=signal.index, columns=signal.columns).fillna(0.02)
+        participation = trade_dollar / adv_clean
+        sqrt_impact = impact_gamma * vol_clean * np.sqrt(np.clip(participation, 0.0, 1.0))
+        impact_cost = (delta_w * sqrt_impact).sum(axis=1)
+    else:
+        impact_cost = pd.Series(0.0, index=signal.index)
+
+    short_weights_active = active_weights.clip(upper=0.0).abs()
+    borrow_cost = short_weights_active.sum(axis=1) * (borrow_fee_bps / (10000.0 * 252.0))
+
+    total_cost = linear_fee + impact_cost + borrow_cost
+    net_pnl = gross_pnl - total_cost
     cum_gross = (1.0 + gross_pnl).cumprod() - 1.0
     cum_net = (1.0 + net_pnl).cumprod() - 1.0
+
     return pd.DataFrame(
         {
             "gross_pnl": gross_pnl,
             "turnover": turnover,
-            "cost": cost,
+            "linear_cost": linear_fee,
+            "impact_cost": impact_cost,
+            "borrow_cost": borrow_cost,
+            "cost": total_cost,
             "net_pnl": net_pnl,
             "cum_gross": cum_gross,
             "cum_net": cum_net,
@@ -125,4 +152,45 @@ def optimal_holding_horizon(
         "optimal_horizon": best_h,
         "max_net_sharpe": float(best_net_sharpe),
         "profile": profile,
+    }
+
+
+def strategy_capacity_curve(
+    signal: pd.DataFrame,
+    returns: pd.DataFrame,
+    adv: pd.DataFrame,
+    volatility: pd.DataFrame,
+    aum_levels: Sequence[float] = (1e6, 5e6, 1e7, 2.5e7, 5e7, 1e8, 2.5e8, 5e8),
+    cost_bps: float = 5.0,
+    impact_gamma: float = 0.2,
+    borrow_fee_bps: float = 50.0,
+) -> dict[str, Any]:
+    curve = []
+    max_capacity_aum = float(aum_levels[0])
+    for cap in aum_levels:
+        sim = simulate_long_short_pnl(
+            signal,
+            returns,
+            cost_bps=cost_bps,
+            aum=cap,
+            adv=adv,
+            volatility=volatility,
+            impact_gamma=impact_gamma,
+            borrow_fee_bps=borrow_fee_bps,
+        )
+        perf = portfolio_performance_stats(sim["net_pnl"])
+        net_sr = perf["sharpe_ratio"]
+        curve.append(
+            {
+                "aum": float(cap),
+                "net_sharpe": float(net_sr) if np.isfinite(net_sr) else np.nan,
+                "annualized_return": float(perf["annualized_return"]),
+                "impact_drag_annualized": float(sim["impact_cost"].mean() * 252.0),
+            }
+        )
+        if np.isfinite(net_sr) and net_sr >= 1.0:
+            max_capacity_aum = float(cap)
+    return {
+        "capacity_threshold_aum": max_capacity_aum,
+        "curve": curve,
     }

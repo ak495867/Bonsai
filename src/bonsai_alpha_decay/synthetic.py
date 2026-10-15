@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-
 import numpy as np
 import pandas as pd
 
@@ -18,6 +17,9 @@ class SyntheticConfig:
     signal_strength: float = 0.08
     decay_rate: float = 0.012
     regime_count: int = 4
+    fat_tails: bool = False
+    garch_vol: bool = False
+    cascade_events: bool = False
 
     def validate(self) -> None:
         if min(self.n_days, self.n_assets, self.n_features, self.regime_count) < 2:
@@ -39,10 +41,42 @@ def make_synthetic_panel(config: SyntheticConfig = SyntheticConfig()) -> MarketP
         int(np.ceil(config.n_days / config.regime_count)),
     )[: config.n_days]
     regimes = pd.Series(regime, index=dates, name="regime")
-    latent = rng.normal(size=(config.n_days, config.n_assets))
-    market = rng.normal(size=config.n_days)
+
+    if config.fat_tails:
+        t_draw = rng.standard_t(df=5, size=(config.n_days, config.n_assets))
+        latent = t_draw * np.sqrt(3.0 / 5.0)
+        market_t = rng.standard_t(df=5, size=config.n_days)
+        market = market_t * np.sqrt(3.0 / 5.0)
+    else:
+        latent = rng.normal(size=(config.n_days, config.n_assets))
+        market = rng.normal(size=config.n_days)
+
     innovations = latent * 0.8 + market[:, None] * 0.2
-    returns = innovations * 0.01
+
+    if config.garch_vol:
+        vol = np.zeros((config.n_days, config.n_assets))
+        vol[0] = 0.01
+        omega = 1e-6
+        alpha_g = 0.08
+        beta_g = 0.90
+        returns_mat = np.zeros_like(innovations)
+        returns_mat[0] = innovations[0] * vol[0]
+        for t in range(1, config.n_days):
+            var_t = omega + alpha_g * (returns_mat[t - 1] ** 2) + beta_g * (vol[t - 1] ** 2)
+            vol[t] = np.sqrt(np.maximum(var_t, 1e-8))
+            returns_mat[t] = innovations[t] * vol[t]
+        returns = returns_mat
+    else:
+        returns = innovations * 0.01
+
+    if config.cascade_events:
+        quake_days = [int(config.n_days * 0.4), int(config.n_days * 0.75)]
+        crowd_vector = rng.uniform(0.0, 1.0, config.n_assets)
+        for qd in quake_days:
+            if qd < config.n_days:
+                unwind = -0.04 * crowd_vector
+                returns[qd] += unwind
+
     feature_matrix = {}
     for feature_index, name in enumerate(feature_names):
         base = rng.normal(size=(config.n_days, config.n_assets))
@@ -59,6 +93,7 @@ def make_synthetic_panel(config: SyntheticConfig = SyntheticConfig()) -> MarketP
         feature_matrix[name] = (
             persistence + loading * informative + 0.05 * cross_section
         )
+
     features = pd.concat(
         {
             name: pd.DataFrame(value, index=dates, columns=assets)

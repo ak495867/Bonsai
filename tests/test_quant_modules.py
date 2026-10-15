@@ -132,3 +132,80 @@ def test_observatory_with_pnl_simulation():
     assert "deflated_sharpe_ratio" in summary.columns
     assert "is_fdr_significant" in summary.columns
     assert results["s1"].pnl is not None
+
+
+def test_power_law_and_hump_decay_family():
+    from bonsai_alpha_decay import (
+        estimate_decay_family,
+        estimate_hump_decay,
+        estimate_power_law_decay,
+    )
+    horizons = np.array([1, 2, 3, 5, 10, 20])
+    ic_pow = 0.1 * (horizons ** -0.5)
+    pow_res = estimate_power_law_decay(pd.Series(ic_pow, index=horizons))
+    assert np.isclose(pow_res["alpha"], 0.5, atol=1e-2)
+    assert pow_res["status"] == "ok"
+    ic_hump = 0.05 * (horizons ** 1.2) * np.exp(-0.3 * horizons)
+    hump_res = estimate_hump_decay(pd.Series(ic_hump, index=horizons))
+    assert hump_res["status"] == "ok"
+    assert hump_res["peak_horizon"] > 1.0
+    family = estimate_decay_family(pd.Series(ic_hump, index=horizons))
+    assert family["best_model"] == "hump"
+
+
+def test_impact_and_capacity_curve():
+    from bonsai_alpha_decay import strategy_capacity_curve
+    dates = pd.bdate_range("2024-01-01", periods=15)
+    assets = ["A", "B", "C", "D", "E"]
+    signal = pd.DataFrame(
+        [[1, 2, 3, 4, 5]] * 15,
+        index=dates,
+        columns=assets,
+    )
+    returns = pd.DataFrame(
+        0.01,
+        index=dates,
+        columns=assets,
+    )
+    returns["E"] = 0.04
+    adv = pd.DataFrame(1e7, index=dates, columns=assets)
+    vol = pd.DataFrame(0.015, index=dates, columns=assets)
+    pnl_impact = simulate_long_short_pnl(
+        signal,
+        returns,
+        quantiles=5,
+        cost_bps=5.0,
+        aum=5e7,
+        adv=adv,
+        volatility=vol,
+        impact_gamma=0.2,
+        borrow_fee_bps=100.0,
+    )
+    assert pnl_impact["impact_cost"].sum() > 0
+    assert pnl_impact["borrow_cost"].sum() > 0
+    cap_curve = strategy_capacity_curve(
+        signal,
+        returns,
+        adv=adv,
+        volatility=vol,
+        aum_levels=[1e6, 1e7, 1e8],
+        impact_gamma=0.2,
+    )
+    assert "capacity_threshold_aum" in cap_curve
+    assert len(cap_curve["curve"]) == 3
+
+
+def test_garch_fat_tails_cascade_synthetic():
+    config = SyntheticConfig(
+        n_days=40,
+        n_assets=15,
+        n_features=2,
+        seed=15,
+        fat_tails=True,
+        garch_vol=True,
+        cascade_events=True,
+    )
+    panel = make_synthetic_panel(config)
+    panel.validate()
+    assert panel.returns.shape == (40, 15)
+

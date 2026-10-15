@@ -1,4 +1,10 @@
-from .decay import bootstrap_decay, estimate_exponential_decay
+from .decay import (
+    bootstrap_decay,
+    estimate_decay_family,
+    estimate_exponential_decay,
+    estimate_hump_decay,
+    estimate_power_law_decay,
+)
 from .drivers import DRIVER_NAMES, fit_driver_model, strategy_driver_exposure
 from .engine import (
     build_ic_table,
@@ -20,6 +26,7 @@ from .portfolio import (
     optimal_holding_horizon,
     portfolio_performance_stats,
     simulate_long_short_pnl,
+    strategy_capacity_curve,
 )
 from .reporting import generate_tearsheet_html, save_tearsheet
 from .rolling import decay_compression_rate, rolling_decay_profile
@@ -45,7 +52,10 @@ __all__ = [
     "cross_sectional_ic",
     "decay_compression_rate",
     "deflated_sharpe_ratio",
+    "estimate_decay_family",
     "estimate_exponential_decay",
+    "estimate_hump_decay",
+    "estimate_power_law_decay",
     "evaluate_strategy",
     "fit_driver_model",
     "forward_returns",
@@ -62,6 +72,7 @@ __all__ = [
     "run_observatory",
     "save_tearsheet",
     "simulate_long_short_pnl",
+    "strategy_capacity_curve",
     "strategy_driver_exposure",
     "strategy_specs_to_frame",
     "with_decay_profile",
