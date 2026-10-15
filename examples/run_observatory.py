@@ -15,10 +15,13 @@ config = SyntheticConfig(
     seed=7,
     fat_tails=True,
     garch_vol=True,
+    decay_rate=0.08,
+    signal_strength=0.10,
+    predictive_alpha=True,
 )
 panel = make_synthetic_panel(config)
 feature_names = [f"feature_{index:02d}" for index in range(config.n_features)]
-strategies = generate_strategies(feature_names, count=100, seed=8)
+strategies = generate_strategies(feature_names, count=50, seed=8, mode="archetype")
 
 summary, results = run_observatory(
     panel,
@@ -26,7 +29,8 @@ summary, results = run_observatory(
     horizons=(1, 2, 3, 5, 10, 20),
     workers=4,
     simulate_pnl=True,
-    cost_bps=5.0,
+    cost_bps=3.0,
+    return_mode="marginal",
 )
 
 cols = [
@@ -36,6 +40,7 @@ cols = [
         "mean_ic",
         "ic_hac_tstat",
         "half_life",
+        "best_decay_model",
         "strategy_turnover",
         "net_sharpe",
         "deflated_sharpe_ratio",

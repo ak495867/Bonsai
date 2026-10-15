@@ -11,12 +11,19 @@ def deflated_sharpe_ratio(
     n_periods: int,
     skewness: float = 0.0,
     kurtosis: float = 3.0,
+    annualized: bool = False,
+    annualization_factor: int = 252,
 ) -> float:
     trials = np.asarray(trial_sharpes, dtype=float)
     trials = trials[np.isfinite(trials)]
     k = len(trials)
     if k < 2 or n_periods < 3 or not np.isfinite(strategy_sharpe):
         return np.nan
+    sr = strategy_sharpe
+    if annualized and annualization_factor > 1:
+        factor = np.sqrt(float(annualization_factor))
+        sr = sr / factor
+        trials = trials / factor
     var_trials = float(np.var(trials, ddof=1))
     std_trials = float(np.sqrt(var_trials))
     if std_trials <= 0.0:
@@ -25,12 +32,12 @@ def deflated_sharpe_ratio(
     z1 = norm.ppf(1.0 - (1.0 / k))
     z2 = norm.ppf(1.0 - (1.0 / (k * np.e)))
     expected_max_sr = std_trials * ((1.0 - euler) * z1 + euler * z2)
-    denom = 1.0 - skewness * strategy_sharpe + ((kurtosis - 1.0) / 4.0) * (strategy_sharpe**2)
+    denom = 1.0 - skewness * sr + ((kurtosis - 1.0) / 4.0) * (sr**2)
     denom = max(denom, 1e-12)
     se_sr = np.sqrt(denom / (n_periods - 1.0))
     if se_sr <= 0.0:
         return np.nan
-    z_stat = (strategy_sharpe - expected_max_sr) / se_sr
+    z_stat = (sr - expected_max_sr) / se_sr
     return float(norm.cdf(z_stat))
 
 

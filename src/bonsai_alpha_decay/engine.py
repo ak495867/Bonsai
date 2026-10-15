@@ -43,6 +43,10 @@ def build_signal(panel: MarketPanel, spec: StrategySpec) -> pd.DataFrame:
         ranks = score.rank(axis=1, pct=True)
         q = spec.universe_quantile
         score = score.where((ranks <= q) | (ranks >= 1.0 - q), 0.0)
+    if spec.holding_period > 1:
+        score = score.rolling(spec.holding_period, min_periods=1).mean()
+    if getattr(spec, "smoothing", 0.0) > 0.0:
+        score = score.ewm(span=spec.smoothing, adjust=False).mean()
     if panel.mask is not None:
         score = score.where(panel.mask, np.nan)
     score = score.replace([np.inf, -np.inf], np.nan)
@@ -50,7 +54,9 @@ def build_signal(panel: MarketPanel, spec: StrategySpec) -> pd.DataFrame:
 
 
 def forward_returns(
-    returns: pd.DataFrame, horizons: Iterable[int]
+    returns: pd.DataFrame,
+    horizons: Iterable[int],
+    mode: str = "cumulative",
 ) -> dict[int, pd.DataFrame]:
     if (
         not isinstance(returns.index, pd.DatetimeIndex)
@@ -61,6 +67,10 @@ def forward_returns(
     sorted_horizons = sorted(set(int(value) for value in horizons))
     if any(h < 1 for h in sorted_horizons):
         raise ValueError("horizons must be positive")
+    if mode == "marginal":
+        for horizon in sorted_horizons:
+            output[horizon] = returns.shift(-horizon)
+        return output
     if (returns > -1.0).all().all():
         log_ret = np.log1p(returns)
         for horizon in sorted_horizons:

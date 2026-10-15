@@ -20,6 +20,7 @@ class SyntheticConfig:
     fat_tails: bool = False
     garch_vol: bool = False
     cascade_events: bool = False
+    predictive_alpha: bool = False
 
     def validate(self) -> None:
         if min(self.n_days, self.n_assets, self.n_features, self.regime_count) < 2:
@@ -77,22 +78,43 @@ def make_synthetic_panel(config: SyntheticConfig = SyntheticConfig()) -> MarketP
                 unwind = -0.04 * crowd_vector
                 returns[qd] += unwind
 
-    feature_matrix = {}
-    for feature_index, name in enumerate(feature_names):
-        base = rng.normal(size=(config.n_days, config.n_assets))
-        cross_section = np.roll(returns, feature_index + 1, axis=0)
-        cross_section[: feature_index + 1] = 0.0
-        persistence = np.zeros_like(base)
-        persistence[0] = base[0]
-        for day in range(1, config.n_days):
-            persistence[day] = 0.92 * persistence[day - 1] + 0.39 * base[day]
-        lag = feature_index % 5 + 1
-        informative = np.roll(returns, lag, axis=0)
-        informative[:lag] = 0.0
-        loading = config.signal_strength * np.exp(-config.decay_rate * feature_index)
-        feature_matrix[name] = (
-            persistence + loading * informative + 0.05 * cross_section
-        )
+    if config.predictive_alpha:
+        alpha_latent = {}
+        for feature_index, name in enumerate(feature_names):
+            rate = config.decay_rate * (1.0 + 0.1 * feature_index)
+            pers = float(np.exp(-rate))
+            a = np.zeros((config.n_days, config.n_assets))
+            innov = rng.normal(size=(config.n_days, config.n_assets))
+            for t in range(1, config.n_days):
+                a[t] = pers * a[t - 1] + np.sqrt(1.0 - pers**2) * innov[t]
+            alpha_latent[name] = a
+
+        pred_returns = np.zeros((config.n_days, config.n_assets))
+        for feature_index, name in enumerate(feature_names[:8]):
+            loading = config.signal_strength * np.exp(-config.decay_rate * 2.0 * feature_index)
+            pred_returns[1:] += loading * 0.003 * alpha_latent[name][:-1]
+
+        returns = returns + pred_returns
+        feature_matrix = {}
+        for name in feature_names:
+            feature_matrix[name] = alpha_latent[name] + rng.normal(scale=0.3, size=(config.n_days, config.n_assets))
+    else:
+        feature_matrix = {}
+        for feature_index, name in enumerate(feature_names):
+            base = rng.normal(size=(config.n_days, config.n_assets))
+            cross_section = np.roll(returns, feature_index + 1, axis=0)
+            cross_section[: feature_index + 1] = 0.0
+            persistence = np.zeros_like(base)
+            persistence[0] = base[0]
+            for day in range(1, config.n_days):
+                persistence[day] = 0.92 * persistence[day - 1] + 0.39 * base[day]
+            lag = feature_index % 5 + 1
+            informative = np.roll(returns, lag, axis=0)
+            informative[:lag] = 0.0
+            loading = config.signal_strength * np.exp(-config.decay_rate * feature_index)
+            feature_matrix[name] = (
+                persistence + loading * informative + 0.05 * cross_section
+            )
 
     features = pd.concat(
         {

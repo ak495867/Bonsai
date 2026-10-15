@@ -7,7 +7,7 @@ from scipy.stats import norm
 import numpy as np
 import pandas as pd
 
-from .decay import estimate_exponential_decay
+from .decay import estimate_decay_family, estimate_exponential_decay
 from .drivers import strategy_driver_exposure
 from .engine import (
     build_ic_table,
@@ -30,16 +30,21 @@ def evaluate_strategy(
     precomputed_forward: dict[int, pd.DataFrame] | None = None,
     simulate_pnl: bool = False,
     cost_bps: float = 5.0,
+    return_mode: str = "cumulative",
 ) -> ObservedStrategy:
     signal = build_signal(panel, spec)
     forward = (
         precomputed_forward
         if precomputed_forward is not None
-        else forward_returns(panel.returns, horizons)
+        else forward_returns(panel.returns, horizons, mode=return_mode)
     )
     ic_table = build_ic_table(signal, forward, method, min_obs)
     mean_ic = ic_table.mean(axis=0)
     decay = estimate_exponential_decay(mean_ic)
+    decay_models = estimate_decay_family(mean_ic)
+    decay["best_decay_model"] = decay_models.get("best_model", "exponential")
+    if "power_law" in decay_models.get("models", {}):
+        decay["power_law_alpha"] = decay_models["models"]["power_law"].get("alpha", np.nan)
     drivers = strategy_driver_exposure(panel, signal)
     turnover_series = calculate_turnover(signal)
     mean_turnover = float(turnover_series.mean()) if len(turnover_series) > 0 else np.nan
@@ -104,6 +109,7 @@ def run_observatory(
     workers: int = 1,
     simulate_pnl: bool = False,
     cost_bps: float = 5.0,
+    return_mode: str = "cumulative",
 ) -> tuple[pd.DataFrame, dict[str, ObservedStrategy]]:
     panel.validate()
     specs = list(strategies)
@@ -114,7 +120,7 @@ def run_observatory(
     unique_ids = [spec.strategy_id for spec in specs]
     if len(set(unique_ids)) != len(unique_ids):
         raise ValueError("strategy_id values must be unique")
-    forward = forward_returns(panel.returns, horizons)
+    forward = forward_returns(panel.returns, horizons, mode=return_mode)
     evaluate = lambda spec: evaluate_strategy(
         panel,
         spec,
@@ -124,6 +130,7 @@ def run_observatory(
         precomputed_forward=forward,
         simulate_pnl=simulate_pnl,
         cost_bps=cost_bps,
+        return_mode=return_mode,
     )
     if workers == 1:
         evaluated = [evaluate(spec) for spec in specs]
@@ -142,7 +149,7 @@ def run_observatory(
         net_sharpes = summary["net_sharpe"].to_numpy(dtype=float)
         n_periods = len(panel.returns)
         dsr_vals = [
-            deflated_sharpe_ratio(sr, net_sharpes, n_periods)
+            deflated_sharpe_ratio(sr, net_sharpes, n_periods, annualized=True)
             for sr in net_sharpes
         ]
         summary["deflated_sharpe_ratio"] = dsr_vals

@@ -51,6 +51,8 @@ def run_main() -> None:
     parser.add_argument("--simulate-pnl", action="store_true")
     parser.add_argument("--cost-bps", type=float, default=5.0)
     parser.add_argument("--tearsheet", action="store_true")
+    parser.add_argument("--return-mode", choices=["cumulative", "marginal"], default="cumulative")
+    parser.add_argument("--strategy-mode", choices=["random", "archetype", "informed"], default="random")
     args = parser.parse_args()
     output = Path(args.output)
     config = SyntheticConfig(
@@ -58,7 +60,7 @@ def run_main() -> None:
     )
     panel = make_synthetic_panel(config)
     feature_names = [f"feature_{index:02d}" for index in range(args.features)]
-    strategies = generate_strategies(feature_names, args.count, args.seed + 1)
+    strategies = generate_strategies(feature_names, args.count, args.seed + 1, mode=args.strategy_mode)
     summary, results = run_observatory(
         panel,
         strategies,
@@ -66,6 +68,7 @@ def run_main() -> None:
         min_obs=args.min_obs,
         simulate_pnl=args.simulate_pnl,
         cost_bps=args.cost_bps,
+        return_mode=args.return_mode,
     )
     ext = f".{args.format}"
     write_frame(summary, output / f"strategy_summary{ext}")

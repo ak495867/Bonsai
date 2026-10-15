@@ -84,6 +84,7 @@ class StrategySpec:
     universe_quantile: float | None = None
     seed: int = 0
     tags: tuple[str, ...] = field(default_factory=tuple)
+    smoothing: float = 0.0
 
     def validate(self, available_features: Sequence[str] | None = None) -> None:
         if not self.strategy_id:
