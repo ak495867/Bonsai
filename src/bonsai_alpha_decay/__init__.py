@@ -8,6 +8,12 @@ from .decay import (
 )
 from .cpcv import CombinatorialPurgedCV, evaluate_strategy_cpcv
 from .drivers import DRIVER_NAMES, fit_driver_model, strategy_driver_exposure
+from .ensemble import (
+    compute_strategy_correlation_matrix,
+    hierarchical_alpha_clustering,
+    hierarchical_risk_parity_weights,
+    synthesize_master_ensemble,
+)
 from .engine import (
     build_ic_table,
     build_signal,
@@ -77,6 +83,7 @@ __all__ = [
     "build_signal",
     "calculate_turnover",
     "compute_dynamic_borrow_rates",
+    "compute_strategy_correlation_matrix",
     "cross_sectional_ic",
     "decay_compression_rate",
     "deflated_sharpe_ratio",
@@ -93,6 +100,8 @@ __all__ = [
     "generate_strategies",
     "generate_tearsheet_html",
     "haircut_sharpe_ratio",
+    "hierarchical_alpha_clustering",
+    "hierarchical_risk_parity_weights",
     "ic_hac_term_structure",
     "ic_long_table",
     "ledoit_wolf_shrinkage",
@@ -111,5 +120,6 @@ __all__ = [
     "strategy_capacity_curve",
     "strategy_driver_exposure",
     "strategy_specs_to_frame",
+    "synthesize_master_ensemble",
     "with_decay_profile",
 ]

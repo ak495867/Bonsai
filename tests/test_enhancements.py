@@ -14,6 +14,7 @@ from bonsai_alpha_decay import (
     build_signal,
     calculate_turnover,
     compute_dynamic_borrow_rates,
+    compute_strategy_correlation_matrix,
     estimate_bi_exponential_decay,
     estimate_decay_family,
     estimate_exponential_decay,
@@ -21,6 +22,7 @@ from bonsai_alpha_decay import (
     evaluate_strategy_cpcv,
     fit_driver_model,
     generate_tearsheet_html,
+    hierarchical_alpha_clustering,
     ic_hac_term_structure,
     ic_long_table,
     ledoit_wolf_shrinkage,
@@ -31,6 +33,7 @@ from bonsai_alpha_decay import (
     run_observatory,
     simulate_long_short_pnl,
     simulate_optimized_portfolio_pnl,
+    synthesize_master_ensemble,
 )
 from bonsai_alpha_decay.persistence import read_frame, write_frame
 
@@ -441,6 +444,45 @@ def test_portfolio_optimization_and_shrinkage():
     assert "net_pnl" in sim_opt.columns
     assert "turnover" in sim_opt.columns
     assert "cum_net" in sim_opt.columns
+
+
+def test_hrp_master_ensemble():
+    dates = pd.bdate_range("2024-01-01", periods=100)
+    # Generate 4 synthetic strategy PnL series: 2 momentum (correlated) and 2 reversion (correlated)
+    np.random.seed(42)
+    base_mom = np.random.normal(0.001, 0.01, size=100)
+    base_rev = np.random.normal(0.001, 0.01, size=100)
+
+    pnl_df = pd.DataFrame(
+        {
+            "mom_1": base_mom + np.random.normal(0, 0.002, 100),
+            "mom_2": base_mom + np.random.normal(0, 0.002, 100),
+            "rev_1": base_rev + np.random.normal(0, 0.002, 100),
+            "rev_2": base_rev + np.random.normal(0, 0.002, 100),
+        },
+        index=dates,
+    )
+
+    corr = compute_strategy_correlation_matrix(pnl_df)
+    assert corr.shape == (4, 4)
+    # Mom_1 and Mom_2 correlation should be high
+    assert corr.loc["mom_1", "mom_2"] > 0.8
+    # Clustering
+    clust = hierarchical_alpha_clustering(corr)
+    assert len(clust["quasi_diag_order"]) == 4
+
+    # HRP Ensemble
+    res_hrp = synthesize_master_ensemble(pnl_df, ensemble_method="hrp")
+    weights = res_hrp["weights"]
+    assert np.isclose(weights.sum(), 1.0)
+    assert np.all(weights > 0.0)
+    # HRP should allocate ~50% to momentum cluster and ~50% to reversion cluster
+    mom_weight = weights["mom_1"] + weights["mom_2"]
+    rev_weight = weights["rev_1"] + weights["rev_2"]
+    assert np.isclose(mom_weight, 0.5, atol=0.1)
+    assert np.isclose(rev_weight, 0.5, atol=0.1)
+    assert res_hrp["diversification_ratio"] > 1.0
+
 
 
 
