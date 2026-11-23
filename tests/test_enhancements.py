@@ -9,6 +9,7 @@ from bonsai_alpha_decay import (
     MarketPanel,
     StrategySpec,
     SyntheticConfig,
+    build_panel_from_daily_bars,
     build_portfolio_weights,
     build_signal,
     calculate_turnover,
@@ -272,6 +273,30 @@ def test_combinatorial_purged_cv():
     assert res["n_paths"] == 10
     assert np.isfinite(res["mean_oos_sharpe"])
     assert 0.0 <= res["pbo"] <= 1.0
+
+
+def test_build_panel_from_daily_bars_with_delisting():
+    dates = pd.bdate_range("2024-01-01", periods=10)
+    rows = []
+    for d in dates:
+        rows.append({"date": d, "asset": "AAA", "close": 100.0, "volume": 10000})
+        # BBB trades only on first 5 days then delists
+        if d <= dates[4]:
+            rows.append({"date": d, "asset": "BBB", "close": 50.0, "volume": 5000})
+    bars = pd.DataFrame(rows)
+
+    delist = pd.DataFrame([{"date": dates[5], "asset": "BBB", "delisting_return": -0.50}])
+    panel = build_panel_from_daily_bars(bars, delisting_df=delist)
+    panel.validate()
+
+    assert "AAA" in panel.returns.columns
+    assert "BBB" in panel.returns.columns
+    assert panel.mask is not None
+    # BBB should be tradeable on day 4, have delisting return on day 5, and False thereafter
+    assert panel.mask.loc[dates[4], "BBB"]
+    assert np.isclose(panel.returns.loc[dates[5], "BBB"], -0.50)
+    assert not panel.mask.loc[dates[6], "BBB"]
+
 
 
 

@@ -17,6 +17,7 @@ from .engine import (
     ic_hac_term_structure,
     newey_west_ic_stats,
 )
+from .ingestion import build_panel_from_daily_bars, read_daily_bars_from_directory
 from .models import MarketPanel, ObservedStrategy, StrategySpec
 from .neutralization import neutralize_signal
 from .observatory import (
@@ -53,6 +54,7 @@ __all__ = [
     "benjamini_hochberg_fdr",
     "bootstrap_decay",
     "build_ic_table",
+    "build_panel_from_daily_bars",
     "build_portfolio_weights",
     "build_signal",
     "calculate_turnover",
@@ -79,6 +81,7 @@ __all__ = [
     "newey_west_ic_stats",
     "optimal_holding_horizon",
     "portfolio_performance_stats",
+    "read_daily_bars_from_directory",
     "rolling_decay_profile",
     "run_observatory",
     "save_tearsheet",
