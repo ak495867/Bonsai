@@ -17,6 +17,7 @@ from bonsai_alpha_decay import (
     estimate_bi_exponential_decay,
     estimate_decay_family,
     estimate_exponential_decay,
+    evaluate_formulaic_alpha,
     evaluate_strategy_cpcv,
     fit_driver_model,
     generate_tearsheet_html,
@@ -370,6 +371,34 @@ def test_multichart_tearsheet_svg(tmp_path: Path):
     out_file = tmp_path / "multi_tearsheet.html"
     out_file.write_text(html, encoding="utf-8")
     assert out_file.exists()
+
+
+def test_formulaic_alpha_expressions():
+    panel = make_synthetic_panel(
+        SyntheticConfig(n_days=40, n_assets=10, n_features=3, seed=20)
+    )
+
+    # 1. Linear combination with rank
+    expr1 = "cs_rank(feature_00) - cs_rank(feature_01)"
+    sig1 = evaluate_formulaic_alpha(expr1, panel, signal_lag=1)
+    assert sig1.shape == panel.returns.shape
+    assert sig1.iloc[0].isna().all()  # signal_lag=1
+    assert not sig1.iloc[1].isna().all()
+
+    # 2. Time-series decay linear and cross-sectional z-score
+    expr2 = "cs_zscore(ts_decay_linear(feature_00, 5))"
+    sig2 = evaluate_formulaic_alpha(expr2, panel, signal_lag=1)
+    assert sig2.shape == panel.returns.shape
+
+    # 3. Time-series delta and power
+    expr3 = "signed_power(ts_delta(close, 2), 2.0)"
+    sig3 = evaluate_formulaic_alpha(expr3, panel, signal_lag=1)
+    assert sig3.shape == panel.returns.shape
+
+    # 4. Unknown variable raises NameError
+    with pytest.raises(NameError):
+        evaluate_formulaic_alpha("cs_rank(nonexistent_feature)", panel)
+
 
 
 

@@ -17,6 +17,19 @@ from .engine import (
     ic_hac_term_structure,
     newey_west_ic_stats,
 )
+from .expressions import (
+    cs_rank,
+    cs_zscore,
+    evaluate_formulaic_alpha,
+    scale,
+    signed_power,
+    ts_corr,
+    ts_decay_linear,
+    ts_delta,
+    ts_mean,
+    ts_rank,
+    ts_std,
+)
 from .ingestion import build_panel_from_daily_bars, read_daily_bars_from_directory
 from .models import MarketPanel, ObservedStrategy, StrategySpec
 from .neutralization import neutralize_signal
@@ -67,6 +80,7 @@ __all__ = [
     "estimate_exponential_decay",
     "estimate_hump_decay",
     "estimate_power_law_decay",
+    "evaluate_formulaic_alpha",
     "evaluate_strategy",
     "evaluate_strategy_cpcv",
     "fit_driver_model",
