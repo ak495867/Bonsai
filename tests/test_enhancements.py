@@ -23,11 +23,14 @@ from bonsai_alpha_decay import (
     generate_tearsheet_html,
     ic_hac_term_structure,
     ic_long_table,
+    ledoit_wolf_shrinkage,
     make_synthetic_panel,
     neutralize_signal,
     newey_west_ic_stats,
+    optimize_portfolio_weights,
     run_observatory,
     simulate_long_short_pnl,
+    simulate_optimized_portfolio_pnl,
 )
 from bonsai_alpha_decay.persistence import read_frame, write_frame
 
@@ -398,6 +401,47 @@ def test_formulaic_alpha_expressions():
     # 4. Unknown variable raises NameError
     with pytest.raises(NameError):
         evaluate_formulaic_alpha("cs_rank(nonexistent_feature)", panel)
+
+
+def test_portfolio_optimization_and_shrinkage():
+    # 1. Ledoit-Wolf Shrinkage
+    ret = np.random.normal(size=(50, 10))
+    shrunk = ledoit_wolf_shrinkage(ret)
+    assert shrunk.shape == (10, 10)
+    assert np.all(np.linalg.eigvalsh(shrunk) > 0)  # Positive definite
+
+    # 2. Portfolio Optimization with Dollar Neutrality and Factor Neutrality
+    alpha = np.array([0.05, 0.04, 0.03, 0.01, 0.0, -0.01, -0.02, -0.03, -0.04, -0.05])
+    # Single market factor
+    factor = np.ones((10, 1))
+    w_opt = optimize_portfolio_weights(
+        alpha=alpha,
+        factors=factor,
+        cov=shrunk,
+        risk_aversion=1.0,
+        max_weight=0.25,
+        max_leverage=2.0,
+    )
+    # Check dollar neutrality
+    assert np.isclose(np.sum(w_opt), 0.0, atol=1e-5)
+    # Check factor neutrality
+    assert np.isclose(np.dot(w_opt, factor[:, 0]), 0.0, atol=1e-5)
+    # Check gross leverage cap
+    assert np.sum(np.abs(w_opt)) <= 2.0001
+    # Check high alpha names are long and low alpha names are short
+    assert w_opt[0] > 0
+    assert w_opt[-1] < 0
+
+    # 3. Walk-Forward Optimized PnL Simulation
+    dates = pd.bdate_range("2024-01-01", periods=15)
+    assets = [f"A{i}" for i in range(10)]
+    signal = pd.DataFrame(np.tile(alpha, (15, 1)), index=dates, columns=assets)
+    returns = pd.DataFrame(ret[:15], index=dates, columns=assets)
+    sim_opt = simulate_optimized_portfolio_pnl(signal, returns, max_weight=0.25)
+    assert "net_pnl" in sim_opt.columns
+    assert "turnover" in sim_opt.columns
+    assert "cum_net" in sim_opt.columns
+
 
 
 

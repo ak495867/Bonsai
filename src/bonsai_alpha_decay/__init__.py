@@ -39,6 +39,11 @@ from .observatory import (
     run_observatory,
     strategy_specs_to_frame,
 )
+from .optimization import (
+    ledoit_wolf_shrinkage,
+    optimize_portfolio_weights,
+    simulate_optimized_portfolio_pnl,
+)
 from .portfolio import (
     build_portfolio_weights,
     compute_dynamic_borrow_rates,
@@ -90,16 +95,19 @@ __all__ = [
     "haircut_sharpe_ratio",
     "ic_hac_term_structure",
     "ic_long_table",
+    "ledoit_wolf_shrinkage",
     "make_synthetic_panel",
     "neutralize_signal",
     "newey_west_ic_stats",
     "optimal_holding_horizon",
+    "optimize_portfolio_weights",
     "portfolio_performance_stats",
     "read_daily_bars_from_directory",
     "rolling_decay_profile",
     "run_observatory",
     "save_tearsheet",
     "simulate_long_short_pnl",
+    "simulate_optimized_portfolio_pnl",
     "strategy_capacity_curve",
     "strategy_driver_exposure",
     "strategy_specs_to_frame",
