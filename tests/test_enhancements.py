@@ -23,6 +23,7 @@ from bonsai_alpha_decay import (
     evaluate_formulaic_alpha,
     evaluate_strategy_cpcv,
     fit_driver_model,
+    generate_master_observatory_html,
     generate_tearsheet_html,
     hierarchical_alpha_clustering,
     ic_hac_term_structure,
@@ -33,6 +34,7 @@ from bonsai_alpha_decay import (
     newey_west_ic_stats,
     optimize_portfolio_weights,
     run_observatory,
+    save_master_report,
     simulate_long_short_pnl,
     simulate_optimized_portfolio_pnl,
     synthesize_master_ensemble,
@@ -520,14 +522,76 @@ def test_regime_conditional_decay():
     assert res["classification"] in {"fair_weather", "all_weather", "fragile"}
 
 
+def test_master_observatory_report(tmp_path: Path):
+    summary_df = pd.DataFrame(
+        [
+            {
+                "strategy_id": "alpha_rev_1",
+                "mean_ic": 0.052,
+                "ic_hac_tstat": 3.4,
+                "lambda": 0.12,
+                "half_life": 5.8,
+                "best_decay_model": "exponential",
+                "net_sharpe": 1.85,
+                "deflated_sharpe_ratio": 0.98,
+                "is_fdr_significant": True,
+            },
+            {
+                "strategy_id": "alpha_mom_5",
+                "mean_ic": 0.038,
+                "ic_hac_tstat": 2.6,
+                "lambda": 0.06,
+                "half_life": 11.5,
+                "best_decay_model": "bi_exponential",
+                "net_sharpe": 1.42,
+                "deflated_sharpe_ratio": 0.92,
+                "is_fdr_significant": True,
+            },
+            {
+                "strategy_id": "alpha_vol_ratio",
+                "mean_ic": -0.012,
+                "ic_hac_tstat": -0.8,
+                "lambda": 0.28,
+                "half_life": 2.5,
+                "best_decay_model": "power_law",
+                "net_sharpe": -0.3,
+                "deflated_sharpe_ratio": 0.15,
+                "is_fdr_significant": False,
+            },
+        ]
+    )
 
+    corr_matrix = pd.DataFrame(
+        [
+            [1.0, 0.15, -0.22],
+            [0.15, 1.0, 0.05],
+            [-0.22, 0.05, 1.0],
+        ],
+        index=["alpha_rev_1", "alpha_mom_5", "alpha_vol_ratio"],
+        columns=["alpha_rev_1", "alpha_mom_5", "alpha_vol_ratio"],
+    )
 
+    ensemble_info = {
+        "correlation_matrix": corr_matrix,
+        "diversification_ratio": 1.62,
+        "performance": {
+            "sharpe_ratio": 2.35,
+            "annualized_return": 0.28,
+            "max_drawdown": 0.06,
+        },
+    }
 
+    html = generate_master_observatory_html(summary_df, ensemble_info=ensemble_info)
+    assert "<!DOCTYPE html>" in html
+    assert "Bonsai Master Observatory Executive Report" in html
+    assert "<svg" in html
+    assert "alpha_rev_1" in html
+    assert "Master Ensemble Sharpe" in html
+    assert "2.3500" in html
+    assert "1.6200x" in html
 
-
-
-
-
-
-
+    report_path = tmp_path / "master_report.html"
+    saved = save_master_report(html, report_path)
+    assert saved.exists()
+    assert saved.stat().st_size > 500
 

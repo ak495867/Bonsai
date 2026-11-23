@@ -45,6 +45,10 @@ from .observatory import (
     run_observatory,
     strategy_specs_to_frame,
 )
+from .observatory_report import (
+    generate_master_observatory_html,
+    save_master_report,
+)
 from .optimization import (
     ledoit_wolf_shrinkage,
     optimize_portfolio_weights,
@@ -102,6 +106,7 @@ __all__ = [
     "forward_returns",
     "generate_strategies",
     "generate_tearsheet_html",
+    "generate_master_observatory_html",
     "haircut_sharpe_ratio",
     "hierarchical_alpha_clustering",
     "hierarchical_risk_parity_weights",
@@ -117,6 +122,7 @@ __all__ = [
     "read_daily_bars_from_directory",
     "rolling_decay_profile",
     "run_observatory",
+    "save_master_report",
     "save_tearsheet",
     "simulate_long_short_pnl",
     "simulate_optimized_portfolio_pnl",

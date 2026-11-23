@@ -7,6 +7,7 @@ from pathlib import Path
 from .drivers import fit_driver_model
 from .observatory import ic_long_table, run_observatory, strategy_specs_to_frame
 from .persistence import write_frame, write_json
+from .observatory_report import generate_master_observatory_html, save_master_report
 from .reporting import generate_tearsheet_html, save_tearsheet
 from .strategies import generate_strategies
 from .synthetic import SyntheticConfig, make_synthetic_panel
@@ -109,6 +110,16 @@ def run_main() -> None:
                 capacity_info=cap_info,
             )
             save_tearsheet(html, tearsheet_dir / f"{sid}.html")
+
+        ensemble_info = None
+        if args.simulate_pnl and len(results) > 1:
+            from .ensemble import synthesize_master_ensemble
+            try:
+                ensemble_info = synthesize_master_ensemble(results, ensemble_method="hrp", max_strategies=10)
+            except Exception:
+                pass
+        master_html = generate_master_observatory_html(summary, ensemble_info=ensemble_info)
+        save_master_report(master_html, output / "master_observatory_report.html")
 
     display_cols = [
         col
