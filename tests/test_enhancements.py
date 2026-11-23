@@ -15,9 +15,11 @@ from bonsai_alpha_decay import (
     calculate_turnover,
     compute_dynamic_borrow_rates,
     compute_strategy_correlation_matrix,
+    detect_market_regimes,
     estimate_bi_exponential_decay,
     estimate_decay_family,
     estimate_exponential_decay,
+    estimate_regime_conditional_decay,
     evaluate_formulaic_alpha,
     evaluate_strategy_cpcv,
     fit_driver_model,
@@ -482,6 +484,41 @@ def test_hrp_master_ensemble():
     assert np.isclose(mom_weight, 0.5, atol=0.1)
     assert np.isclose(rev_weight, 0.5, atol=0.1)
     assert res_hrp["diversification_ratio"] > 1.0
+
+
+def test_regime_conditional_decay():
+    panel = make_synthetic_panel(
+        SyntheticConfig(n_days=80, n_assets=15, n_features=2, seed=22)
+    )
+    regimes = detect_market_regimes(panel, method="volatility", n_regimes=2)
+    assert len(regimes) == 80
+    assert set(regimes.unique()) == {"low_vol", "high_vol"}
+
+    # Trend regimes
+    trend_regimes = detect_market_regimes(panel, method="trend")
+    assert len(trend_regimes) == 80
+
+    # Synthetic IC table: strong in low vol, decaying in high vol
+    dates = panel.returns.index
+    horizons = [1, 2, 3, 5]
+    ic_data = {}
+    for h in horizons:
+        vals = np.where(
+            regimes == "low_vol",
+            0.08 * np.exp(-0.05 * h),
+            0.04 * np.exp(-0.25 * h),
+        )
+        ic_data[h] = vals
+
+    ic_table = pd.DataFrame(ic_data, index=dates)
+    res = estimate_regime_conditional_decay(ic_table, regimes)
+
+    assert "low_vol" in res["regimes"]
+    assert "high_vol" in res["regimes"]
+    # High vol decay lambda should be faster than low vol
+    assert res["regimes"]["high_vol"]["lambda"] > res["regimes"]["low_vol"]["lambda"]
+    assert res["classification"] in {"fair_weather", "all_weather", "fragile"}
+
 
 
 

@@ -58,6 +58,7 @@ from .portfolio import (
     simulate_long_short_pnl,
     strategy_capacity_curve,
 )
+from .regimes import detect_market_regimes, estimate_regime_conditional_decay
 from .reporting import generate_tearsheet_html, save_tearsheet
 from .rolling import decay_compression_rate, rolling_decay_profile
 from .strategies import generate_strategies, with_decay_profile
@@ -87,11 +88,13 @@ __all__ = [
     "cross_sectional_ic",
     "decay_compression_rate",
     "deflated_sharpe_ratio",
+    "detect_market_regimes",
     "estimate_bi_exponential_decay",
     "estimate_decay_family",
     "estimate_exponential_decay",
     "estimate_hump_decay",
     "estimate_power_law_decay",
+    "estimate_regime_conditional_decay",
     "evaluate_formulaic_alpha",
     "evaluate_strategy",
     "evaluate_strategy_cpcv",
