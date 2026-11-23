@@ -44,6 +44,7 @@ def run_main() -> None:
     _panel_config(parser)
     parser.add_argument("--count", type=int, default=500)
     parser.add_argument("--workers", type=int, default=1)
+    parser.add_argument("--backend", choices=["thread", "process"], default="thread")
     parser.add_argument("--output", default="reports/run")
     parser.add_argument("--min-obs", type=int, default=10)
     parser.add_argument("--format", choices=["csv", "parquet"], default="csv")
@@ -69,6 +70,7 @@ def run_main() -> None:
         simulate_pnl=args.simulate_pnl,
         cost_bps=args.cost_bps,
         return_mode=args.return_mode,
+        backend=args.backend,
     )
     ext = f".{args.format}"
     write_frame(summary, output / f"strategy_summary{ext}")

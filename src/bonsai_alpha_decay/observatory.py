@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from dataclasses import asdict
 from typing import Iterable
 from scipy.stats import norm
@@ -119,6 +119,46 @@ def _summary_row(result: ObservedStrategy) -> dict[str, object]:
     return row
 
 
+def _evaluate_worker(
+    task: tuple[
+        MarketPanel,
+        StrategySpec,
+        Iterable[int],
+        str,
+        int,
+        dict[int, pd.DataFrame],
+        bool,
+        float,
+        str,
+        str,
+    ]
+) -> ObservedStrategy:
+    (
+        panel,
+        spec,
+        horizons,
+        method,
+        min_obs,
+        forward,
+        simulate_pnl,
+        cost_bps,
+        return_mode,
+        weighting_scheme,
+    ) = task
+    return evaluate_strategy(
+        panel,
+        spec,
+        horizons,
+        method=method,
+        min_obs=min_obs,
+        precomputed_forward=forward,
+        simulate_pnl=simulate_pnl,
+        cost_bps=cost_bps,
+        return_mode=return_mode,
+        weighting_scheme=weighting_scheme,
+    )
+
+
 def run_observatory(
     panel: MarketPanel,
     strategies: Iterable[StrategySpec],
@@ -130,6 +170,7 @@ def run_observatory(
     cost_bps: float = 5.0,
     return_mode: str = "cumulative",
     weighting_scheme: str = "quantile",
+    backend: str = "thread",
 ) -> tuple[pd.DataFrame, dict[str, ObservedStrategy]]:
     panel.validate()
     specs = list(strategies)
@@ -137,27 +178,35 @@ def run_observatory(
         raise ValueError("strategies must not be empty")
     if workers < 1:
         raise ValueError("workers must be positive")
+    if backend not in {"thread", "process"}:
+        raise ValueError("backend must be 'thread' or 'process'")
     unique_ids = [spec.strategy_id for spec in specs]
     if len(set(unique_ids)) != len(unique_ids):
         raise ValueError("strategy_id values must be unique")
     forward = forward_returns(panel.returns, horizons, mode=return_mode)
-    evaluate = lambda spec: evaluate_strategy(
-        panel,
-        spec,
-        horizons,
-        method,
-        min_obs,
-        precomputed_forward=forward,
-        simulate_pnl=simulate_pnl,
-        cost_bps=cost_bps,
-        return_mode=return_mode,
-        weighting_scheme=weighting_scheme,
-    )
+    tasks = [
+        (
+            panel,
+            spec,
+            horizons,
+            method,
+            min_obs,
+            forward,
+            simulate_pnl,
+            cost_bps,
+            return_mode,
+            weighting_scheme,
+        )
+        for spec in specs
+    ]
     if workers == 1:
-        evaluated = [evaluate(spec) for spec in specs]
+        evaluated = [_evaluate_worker(task) for task in tasks]
+    elif backend == "process":
+        with ProcessPoolExecutor(max_workers=workers) as executor:
+            evaluated = list(executor.map(_evaluate_worker, tasks))
     else:
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            evaluated = list(executor.map(evaluate, specs))
+            evaluated = list(executor.map(_evaluate_worker, tasks))
     evaluated_map = {result.spec.strategy_id: result for result in evaluated}
     summary = pd.DataFrame([_summary_row(result) for result in evaluated])
 

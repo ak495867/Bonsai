@@ -298,6 +298,29 @@ def test_build_panel_from_daily_bars_with_delisting():
     assert not panel.mask.loc[dates[6], "BBB"]
 
 
+def test_multiprocess_observatory_execution():
+    panel = make_synthetic_panel(
+        SyntheticConfig(n_days=40, n_assets=10, n_features=2, seed=14)
+    )
+    strategies = [
+        StrategySpec("s_p1", ("feature_00",), (1.0,), signal_lag=1),
+        StrategySpec("s_p2", ("feature_01",), (-1.0,), signal_lag=1),
+    ]
+    summary, results = run_observatory(
+        panel,
+        strategies,
+        horizons=(1, 2),
+        min_obs=5,
+        workers=2,
+        backend="process",
+        simulate_pnl=True,
+    )
+    assert len(summary) == 2
+    assert set(results.keys()) == {"s_p1", "s_p2"}
+    assert "net_sharpe" in summary.columns
+
+
+
 
 
 
