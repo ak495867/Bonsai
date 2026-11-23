@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from bonsai_alpha_decay import (
+    CombinatorialPurgedCV,
     DRIVER_NAMES,
     MarketPanel,
     StrategySpec,
@@ -15,6 +16,7 @@ from bonsai_alpha_decay import (
     estimate_bi_exponential_decay,
     estimate_decay_family,
     estimate_exponential_decay,
+    evaluate_strategy_cpcv,
     fit_driver_model,
     ic_hac_term_structure,
     ic_long_table,
@@ -247,6 +249,30 @@ def test_vectorized_wls_factor_neutralization():
         w = weights.iloc[t].to_numpy()
         w_dot = np.dot(res_wls.iloc[t] * w, factors["market"].iloc[t])
         assert np.isclose(w_dot, 0.0, atol=1e-10)
+
+
+def test_combinatorial_purged_cv():
+    dates = pd.bdate_range("2024-01-01", periods=60)
+    cpcv = CombinatorialPurgedCV(n_splits=5, n_test_splits=2, purge_window=3, embargo_pct=0.02)
+    splits = list(cpcv.split(dates))
+    # C(5, 2) = 10 paths
+    assert len(splits) == 10
+    for train_idx, test_idx, path_id in splits:
+        assert len(train_idx) > 0
+        assert len(test_idx) > 0
+        # Check no overlap between train and test
+        assert len(set(train_idx).intersection(set(test_idx))) == 0
+
+    # Evaluate strategy with CPCV
+    panel = make_synthetic_panel(
+        SyntheticConfig(n_days=60, n_assets=15, n_features=2, seed=10)
+    )
+    spec = StrategySpec("cpcv_test", ("feature_00",), (1.0,), signal_lag=1)
+    res = evaluate_strategy_cpcv(panel, spec, cpcv=cpcv)
+    assert res["n_paths"] == 10
+    assert np.isfinite(res["mean_oos_sharpe"])
+    assert 0.0 <= res["pbo"] <= 1.0
+
 
 
 

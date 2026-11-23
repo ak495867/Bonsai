@@ -6,6 +6,7 @@ from .decay import (
     estimate_hump_decay,
     estimate_power_law_decay,
 )
+from .cpcv import CombinatorialPurgedCV, evaluate_strategy_cpcv
 from .drivers import DRIVER_NAMES, fit_driver_model, strategy_driver_exposure
 from .engine import (
     build_ic_table,
@@ -44,6 +45,7 @@ from .validation import (
 
 __all__ = [
     "DRIVER_NAMES",
+    "CombinatorialPurgedCV",
     "MarketPanel",
     "ObservedStrategy",
     "StrategySpec",
@@ -64,6 +66,7 @@ __all__ = [
     "estimate_hump_decay",
     "estimate_power_law_decay",
     "evaluate_strategy",
+    "evaluate_strategy_cpcv",
     "fit_driver_model",
     "forward_returns",
     "generate_strategies",
