@@ -119,6 +119,7 @@ class ObservedStrategy:
     drivers: Mapping[str, Any]
     pnl: pd.DataFrame | None = None
     rolling_decay: pd.DataFrame | None = None
+    ic_hac_stats: pd.DataFrame | None = None
 
 
 SignalFunction = Callable[[pd.DataFrame, StrategySpec], pd.DataFrame]

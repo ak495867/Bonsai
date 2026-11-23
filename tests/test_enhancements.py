@@ -12,6 +12,7 @@ from bonsai_alpha_decay import (
     calculate_turnover,
     estimate_exponential_decay,
     fit_driver_model,
+    ic_hac_term_structure,
     ic_long_table,
     make_synthetic_panel,
     newey_west_ic_stats,
@@ -104,3 +105,23 @@ def test_ic_long_table_vectorized():
     assert set(long_df.columns) == {"strategy_id", "date", "horizon", "ic"}
     assert len(long_df) == 40 * 2
     assert (long_df["strategy_id"] == "s_vec").all()
+
+
+def test_ic_hac_term_structure():
+    dates = pd.bdate_range("2024-01-01", periods=50)
+    ic_table = pd.DataFrame(
+        {
+            1: np.full(50, 0.05) + np.random.normal(0, 0.005, 50),
+            2: np.full(50, 0.04) + np.random.normal(0, 0.005, 50),
+            5: np.full(50, 0.02) + np.random.normal(0, 0.005, 50),
+        },
+        index=dates,
+    )
+    term_struct = ic_hac_term_structure(ic_table)
+    assert list(term_struct.index) == [1, 2, 5]
+    assert "se_hac" in term_struct.columns
+    assert "hac_t_stat" in term_struct.columns
+    assert "lag" in term_struct.columns
+    # Horizon 5 should have a lag of at least 4 due to MA(h-1)
+    assert term_struct.loc[5, "lag"] >= 4
+

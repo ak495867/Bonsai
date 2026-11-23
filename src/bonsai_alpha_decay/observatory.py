@@ -14,6 +14,7 @@ from .engine import (
     build_signal,
     calculate_turnover,
     forward_returns,
+    ic_hac_term_structure,
     newey_west_ic_stats,
 )
 from .models import MarketPanel, ObservedStrategy, StrategySpec
@@ -48,14 +49,25 @@ def evaluate_strategy(
     drivers = strategy_driver_exposure(panel, signal)
     turnover_series = calculate_turnover(signal)
     mean_turnover = float(turnover_series.mean()) if len(turnover_series) > 0 else np.nan
-    h1_col = ic_table.iloc[:, 0]
-    nw_stats = newey_west_ic_stats(h1_col)
+    hac_table = ic_hac_term_structure(ic_table)
+    if not hac_table.empty and 1 in hac_table.index:
+        h1_stats = hac_table.loc[1]
+    elif not hac_table.empty:
+        h1_stats = hac_table.iloc[0]
+    else:
+        h1_stats = {"t_stat": np.nan, "hac_t_stat": np.nan, "ir": np.nan}
+
     stats_dict = {
         "strategy_turnover": mean_turnover,
-        "ic_tstat": nw_stats["t_stat"],
-        "ic_hac_tstat": nw_stats["hac_t_stat"],
-        "ic_ir": nw_stats["ir"],
+        "ic_tstat": float(h1_stats["t_stat"]),
+        "ic_hac_tstat": float(h1_stats["hac_t_stat"]),
+        "ic_ir": float(h1_stats["ir"]),
     }
+    for h, h_row in hac_table.iterrows():
+        stats_dict[f"ic_mean_h{h}"] = float(h_row["mean"])
+        stats_dict[f"ic_hac_tstat_h{h}"] = float(h_row["hac_t_stat"])
+        stats_dict[f"ic_ir_h{h}"] = float(h_row["ir"])
+
     pnl_df = None
     if simulate_pnl:
         pnl_df = simulate_long_short_pnl(signal, panel.returns, cost_bps=cost_bps)
@@ -78,6 +90,7 @@ def evaluate_strategy(
         decay=decay,
         drivers=drivers_with_stats,
         pnl=pnl_df,
+        ic_hac_stats=hac_table,
     )
 
 

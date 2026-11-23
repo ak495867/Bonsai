@@ -12,6 +12,7 @@ from .engine import (
     calculate_turnover,
     cross_sectional_ic,
     forward_returns,
+    ic_hac_term_structure,
     newey_west_ic_stats,
 )
 from .models import MarketPanel, ObservedStrategy, StrategySpec
@@ -62,6 +63,7 @@ __all__ = [
     "generate_strategies",
     "generate_tearsheet_html",
     "haircut_sharpe_ratio",
+    "ic_hac_term_structure",
     "ic_long_table",
     "make_synthetic_panel",
     "neutralize_signal",

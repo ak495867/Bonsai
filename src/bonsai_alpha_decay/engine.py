@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Iterable
+from typing import Iterable, Mapping
 from scipy.stats import rankdata
 import numpy as np
 import pandas as pd
@@ -201,3 +201,33 @@ def newey_west_ic_stats(ic_series: pd.Series, max_lag: int | None = None) -> dic
         "hac_t_stat": hac_t_stat,
         "ir": ir,
     }
+
+
+def ic_hac_term_structure(
+    ic_table: pd.DataFrame,
+    max_lags: Mapping[int, int] | int | None = None,
+) -> pd.DataFrame:
+    rows = []
+    for col in ic_table.columns:
+        h = int(col)
+        if isinstance(max_lags, dict):
+            lag = max_lags.get(h)
+        elif isinstance(max_lags, int):
+            lag = max_lags
+        else:
+            clean_len = len(ic_table[col].dropna())
+            base_rule = (
+                int(np.ceil(4.0 * ((clean_len / 100.0) ** (2.0 / 9.0))))
+                if clean_len > 0
+                else 0
+            )
+            lag = max(h - 1, base_rule)
+        stats = newey_west_ic_stats(ic_table[col], max_lag=lag)
+        stats["horizon"] = h
+        stats["lag"] = lag
+        rows.append(stats)
+    df = pd.DataFrame(rows)
+    if not df.empty:
+        df.set_index("horizon", inplace=True)
+        df.sort_index(inplace=True)
+    return df
