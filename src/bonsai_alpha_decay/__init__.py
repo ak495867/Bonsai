@@ -25,6 +25,7 @@ from .observatory import (
 )
 from .portfolio import (
     build_portfolio_weights,
+    compute_dynamic_borrow_rates,
     optimal_holding_horizon,
     portfolio_performance_stats,
     simulate_long_short_pnl,
@@ -52,6 +53,7 @@ __all__ = [
     "build_portfolio_weights",
     "build_signal",
     "calculate_turnover",
+    "compute_dynamic_borrow_rates",
     "cross_sectional_ic",
     "decay_compression_rate",
     "deflated_sharpe_ratio",

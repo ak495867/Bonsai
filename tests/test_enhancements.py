@@ -11,6 +11,7 @@ from bonsai_alpha_decay import (
     build_portfolio_weights,
     build_signal,
     calculate_turnover,
+    compute_dynamic_borrow_rates,
     estimate_exponential_decay,
     fit_driver_model,
     ic_hac_term_structure,
@@ -159,5 +160,43 @@ def test_portfolio_weighting_schemes():
     assert np.allclose(w_vol.abs().sum(axis=1), 2.0)
     sim_vol = simulate_long_short_pnl(signal, returns, weighting_scheme="vol_parity", volatility=vol)
     assert "net_pnl" in sim_vol.columns
+
+
+def test_permanent_impact_and_dynamic_borrow():
+    dates = pd.bdate_range("2024-01-01", periods=10)
+    assets = ["A", "B", "C", "D", "E"]
+    signal = pd.DataFrame(
+        [[1.0, 2.0, 3.0, 4.0, 5.0]] * 10,
+        index=dates,
+        columns=assets,
+    )
+    returns = pd.DataFrame(0.01, index=dates, columns=assets)
+    adv = pd.DataFrame(1e6, index=dates, columns=assets)
+    vol = pd.DataFrame(0.02, index=dates, columns=assets)
+    crowding = pd.Series([0.1, 0.2, 0.5, 0.8, 0.95], index=assets)
+    market_cap = pd.Series([1e10, 5e9, 1e9, 5e8, 1e7], index=assets)
+
+    # Dynamic borrow rates
+    dynamic_borrow = compute_dynamic_borrow_rates(crowding, market_cap, base_fee_bps=50.0)
+    assert dynamic_borrow["E"] > dynamic_borrow["A"]
+    assert dynamic_borrow["E"] >= 50.0
+
+    # Permanent impact simulation
+    sim = simulate_long_short_pnl(
+        signal,
+        returns,
+        adv=adv,
+        volatility=vol,
+        impact_gamma=0.2,
+        impact_eta=0.1,
+        borrow_fee_bps=dynamic_borrow,
+    )
+    assert "temp_impact_cost" in sim.columns
+    assert "perm_impact_cost" in sim.columns
+    assert sim["temp_impact_cost"].sum() > 0
+    assert sim["perm_impact_cost"].sum() > 0
+    assert np.isclose(sim["impact_cost"], sim["temp_impact_cost"] + sim["perm_impact_cost"]).all()
+    assert sim["borrow_cost"].sum() > 0
+
 
 

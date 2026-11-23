@@ -77,6 +77,31 @@ def build_portfolio_weights(
     raise ValueError(f"unsupported weighting_scheme: {weighting_scheme}")
 
 
+def compute_dynamic_borrow_rates(
+    crowding: pd.Series | pd.DataFrame,
+    market_cap: pd.Series | pd.DataFrame,
+    base_fee_bps: float = 50.0,
+    max_fee_bps: float = 3000.0,
+) -> pd.Series | pd.DataFrame:
+    if isinstance(crowding, pd.DataFrame) and isinstance(market_cap, pd.DataFrame):
+        log_mcap = np.log(market_cap.replace(0.0, np.nan).fillna(1e8))
+        cap_penalty = np.clip(12.0 - log_mcap, 0.0, 10.0) * 0.15
+        crowd_penalty = (crowding.fillna(0.0) ** 2) * 4.0
+        multiplier = 1.0 + crowd_penalty + cap_penalty
+        rates = (base_fee_bps * multiplier).clip(base_fee_bps, max_fee_bps)
+        return rates
+    c_s = crowding.to_numpy(dtype=float) if isinstance(crowding, pd.Series) else np.asarray(crowding, dtype=float)
+    m_s = market_cap.to_numpy(dtype=float) if isinstance(market_cap, pd.Series) else np.asarray(market_cap, dtype=float)
+    log_m = np.log(np.where(m_s > 0, m_s, 1e8))
+    cap_pen = np.clip(12.0 - log_m, 0.0, 10.0) * 0.15
+    crowd_pen = (np.nan_to_num(c_s) ** 2) * 4.0
+    mult = 1.0 + crowd_pen + cap_pen
+    rates = np.clip(base_fee_bps * mult, base_fee_bps, max_fee_bps)
+    if isinstance(crowding, pd.Series):
+        return pd.Series(rates, index=crowding.index)
+    return rates
+
+
 def simulate_long_short_pnl(
     signal: pd.DataFrame,
     returns: pd.DataFrame,
@@ -86,7 +111,8 @@ def simulate_long_short_pnl(
     adv: pd.DataFrame | None = None,
     volatility: pd.DataFrame | None = None,
     impact_gamma: float = 0.0,
-    borrow_fee_bps: float = 50.0,
+    impact_eta: float = 0.0,
+    borrow_fee_bps: float | pd.Series | pd.DataFrame = 50.0,
     weighting_scheme: str = "quantile",
     target_leverage: float = 1.0,
 ) -> pd.DataFrame:
@@ -107,18 +133,32 @@ def simulate_long_short_pnl(
     turnover = delta_w.sum(axis=1) * 0.5
     linear_fee = turnover * (cost_bps / 10000.0)
 
-    if impact_gamma > 0.0 and adv is not None and volatility is not None:
-        trade_dollar = delta_w * aum
+    trade_dollar = delta_w * aum
+    if (impact_gamma > 0.0 or impact_eta > 0.0) and adv is not None and volatility is not None:
         adv_clean = adv.reindex(index=signal.index, columns=signal.columns).replace(0.0, np.nan).fillna(1e6)
         vol_clean = volatility.reindex(index=signal.index, columns=signal.columns).fillna(0.02)
         participation = trade_dollar / adv_clean
         sqrt_impact = impact_gamma * vol_clean * np.sqrt(np.clip(participation, 0.0, 1.0))
-        impact_cost = (delta_w * sqrt_impact).sum(axis=1)
+        temp_cost = (delta_w * sqrt_impact).sum(axis=1)
+        perm_impact = impact_eta * vol_clean * np.clip(participation, 0.0, 1.0)
+        perm_cost = (delta_w * perm_impact).sum(axis=1)
+        impact_cost = temp_cost + perm_cost
     else:
+        temp_cost = pd.Series(0.0, index=signal.index)
+        perm_cost = pd.Series(0.0, index=signal.index)
         impact_cost = pd.Series(0.0, index=signal.index)
 
     short_weights_active = active_weights.clip(upper=0.0).abs()
-    borrow_cost = short_weights_active.sum(axis=1) * (borrow_fee_bps / (10000.0 * 252.0))
+    if isinstance(borrow_fee_bps, pd.DataFrame):
+        rates = borrow_fee_bps.reindex(index=signal.index, columns=signal.columns).ffill().fillna(50.0)
+        daily_rate = rates / (10000.0 * 252.0)
+        borrow_cost = (short_weights_active * daily_rate).sum(axis=1)
+    elif isinstance(borrow_fee_bps, pd.Series):
+        rates = borrow_fee_bps.reindex(signal.columns).fillna(50.0)
+        daily_rate = rates / (10000.0 * 252.0)
+        borrow_cost = (short_weights_active.mul(daily_rate, axis=1)).sum(axis=1)
+    else:
+        borrow_cost = short_weights_active.sum(axis=1) * (borrow_fee_bps / (10000.0 * 252.0))
 
     total_cost = linear_fee + impact_cost + borrow_cost
     net_pnl = gross_pnl - total_cost
@@ -131,6 +171,8 @@ def simulate_long_short_pnl(
             "turnover": turnover,
             "linear_cost": linear_fee,
             "impact_cost": impact_cost,
+            "temp_impact_cost": temp_cost,
+            "perm_impact_cost": perm_cost,
             "borrow_cost": borrow_cost,
             "cost": total_cost,
             "net_pnl": net_pnl,
@@ -232,7 +274,9 @@ def strategy_capacity_curve(
     aum_levels: Sequence[float] = (1e6, 5e6, 1e7, 2.5e7, 5e7, 1e8, 2.5e8, 5e8),
     cost_bps: float = 5.0,
     impact_gamma: float = 0.2,
-    borrow_fee_bps: float = 50.0,
+    impact_eta: float = 0.05,
+    borrow_fee_bps: float | pd.Series | pd.DataFrame = 50.0,
+    weighting_scheme: str = "quantile",
 ) -> dict[str, Any]:
     curve = []
     max_capacity_aum = float(aum_levels[0])
@@ -245,7 +289,9 @@ def strategy_capacity_curve(
             adv=adv,
             volatility=volatility,
             impact_gamma=impact_gamma,
+            impact_eta=impact_eta,
             borrow_fee_bps=borrow_fee_bps,
+            weighting_scheme=weighting_scheme,
         )
         perf = portfolio_performance_stats(sim["net_pnl"])
         net_sr = perf["sharpe_ratio"]
