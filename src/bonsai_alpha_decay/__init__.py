@@ -1,5 +1,6 @@
 from .decay import (
     bootstrap_decay,
+    estimate_bi_exponential_decay,
     estimate_decay_family,
     estimate_exponential_decay,
     estimate_hump_decay,
@@ -57,6 +58,7 @@ __all__ = [
     "cross_sectional_ic",
     "decay_compression_rate",
     "deflated_sharpe_ratio",
+    "estimate_bi_exponential_decay",
     "estimate_decay_family",
     "estimate_exponential_decay",
     "estimate_hump_decay",

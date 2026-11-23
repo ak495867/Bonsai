@@ -175,6 +175,76 @@ def estimate_hump_decay(
     }
 
 
+def estimate_bi_exponential_decay(
+    ic_by_horizon: pd.Series | dict[float, float],
+) -> dict[str, Any]:
+    series = pd.Series(ic_by_horizon, dtype=float).sort_index()
+    valid = series.replace([np.inf, -np.inf], np.nan).dropna()
+    valid = valid[(valid > 0) & (valid.index > 0)]
+    if len(valid) < 4 or valid.index.nunique() < 4:
+        return {
+            "a_fast": np.nan,
+            "lambda_fast": np.nan,
+            "half_life_fast": np.nan,
+            "a_slow": np.nan,
+            "lambda_slow": np.nan,
+            "half_life_slow": np.nan,
+            "fast_ratio": np.nan,
+            "r2": np.nan,
+            "status": "insufficient_points",
+        }
+    h = valid.index.to_numpy(dtype=float)
+    y = valid.to_numpy(dtype=float)
+    y0 = float(y[0])
+    p0 = [y0 * 0.5, 0.5, y0 * 0.5, 0.05]
+    bounds = (
+        [0.0, 0.0001, 0.0, 0.0001],
+        [np.inf, 10.0, np.inf, 10.0],
+    )
+
+    def bi_exp(x: np.ndarray, a_f: float, l_f: float, a_s: float, l_s: float) -> np.ndarray:
+        return a_f * np.exp(-l_f * x) + a_s * np.exp(-l_s * x)
+
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            popt, _ = curve_fit(bi_exp, h, y, p0=p0, bounds=bounds, maxfev=4000)
+        a_f, l_f, a_s, l_s = popt
+        if l_f < l_s:
+            a_f, a_s = a_s, a_f
+            l_f, l_s = l_s, l_f
+        fitted = bi_exp(h, a_f, l_f, a_s, l_s)
+        res = y - fitted
+        tot = y - np.mean(y)
+        r2 = float(1.0 - np.dot(res, res) / np.dot(tot, tot)) if np.dot(tot, tot) > 0 else np.nan
+        hl_f = float(np.log(2.0) / l_f) if l_f > 0 else np.inf
+        hl_s = float(np.log(2.0) / l_s) if l_s > 0 else np.inf
+        fast_ratio = float(a_f / (a_f + a_s)) if (a_f + a_s) > 0 else 0.5
+        return {
+            "a_fast": float(a_f),
+            "lambda_fast": float(l_f),
+            "half_life_fast": hl_f,
+            "a_slow": float(a_s),
+            "lambda_slow": float(l_s),
+            "half_life_slow": hl_s,
+            "fast_ratio": fast_ratio,
+            "r2": r2,
+            "status": "ok" if (l_f > 0 and l_s > 0) else "non_decay_or_growth",
+        }
+    except Exception:
+        return {
+            "a_fast": np.nan,
+            "lambda_fast": np.nan,
+            "half_life_fast": np.nan,
+            "a_slow": np.nan,
+            "lambda_slow": np.nan,
+            "half_life_slow": np.nan,
+            "fast_ratio": np.nan,
+            "r2": np.nan,
+            "status": "fit_failed",
+        }
+
+
 def estimate_decay_family(
     ic_by_horizon: pd.Series | dict[float, float],
 ) -> dict[str, Any]:
@@ -194,6 +264,7 @@ def estimate_decay_family(
     exp_fit = estimate_exponential_decay(valid)
     pow_fit = estimate_power_law_decay(valid)
     hump_fit = estimate_hump_decay(valid)
+    bi_exp_fit = estimate_bi_exponential_decay(valid) if n >= 4 else None
 
     def _aic(fitted_y: np.ndarray, k: int) -> float:
         res = y - fitted_y
@@ -205,6 +276,12 @@ def estimate_decay_family(
     exp_pred = exp_fit["ic0"] * np.exp(-exp_fit["lambda"] * h) if np.isfinite(exp_fit["ic0"]) else np.full(n, np.nan)
     pow_pred = pow_fit["ic0"] * (h ** -pow_fit["alpha"]) if np.isfinite(pow_fit["ic0"]) else np.full(n, np.nan)
     hump_pred = hump_fit["scale"] * (h ** hump_fit["beta"]) * np.exp(-hump_fit["lambda"] * h) if np.isfinite(hump_fit["scale"]) else np.full(n, np.nan)
+    bi_exp_pred = (
+        bi_exp_fit["a_fast"] * np.exp(-bi_exp_fit["lambda_fast"] * h)
+        + bi_exp_fit["a_slow"] * np.exp(-bi_exp_fit["lambda_slow"] * h)
+        if (bi_exp_fit and np.isfinite(bi_exp_fit["a_fast"]))
+        else np.full(n, np.nan)
+    )
 
     aic_dict = {}
     if np.isfinite(exp_pred).all():
@@ -213,15 +290,21 @@ def estimate_decay_family(
         aic_dict["power_law"] = _aic(pow_pred, 2)
     if np.isfinite(hump_pred).all():
         aic_dict["hump"] = _aic(hump_pred, 3)
+    if np.isfinite(bi_exp_pred).all():
+        aic_dict["bi_exponential"] = _aic(bi_exp_pred, 4)
+
+    models_dict = {
+        "exponential": exp_fit,
+        "power_law": pow_fit,
+        "hump": hump_fit,
+    }
+    if bi_exp_fit is not None:
+        models_dict["bi_exponential"] = bi_exp_fit
 
     best_model = min(aic_dict, key=aic_dict.get) if aic_dict else "exponential"
     return {
         "best_model": best_model,
-        "models": {
-            "exponential": exp_fit,
-            "power_law": pow_fit,
-            "hump": hump_fit,
-        },
+        "models": models_dict,
         "aic": aic_dict,
     }
 

@@ -12,6 +12,8 @@ from bonsai_alpha_decay import (
     build_signal,
     calculate_turnover,
     compute_dynamic_borrow_rates,
+    estimate_bi_exponential_decay,
+    estimate_decay_family,
     estimate_exponential_decay,
     fit_driver_model,
     ic_hac_term_structure,
@@ -197,6 +199,25 @@ def test_permanent_impact_and_dynamic_borrow():
     assert sim["perm_impact_cost"].sum() > 0
     assert np.isclose(sim["impact_cost"], sim["temp_impact_cost"] + sim["perm_impact_cost"]).all()
     assert sim["borrow_cost"].sum() > 0
+
+
+def test_bi_exponential_decay():
+    horizons = np.array([1, 2, 3, 5, 10, 20, 30])
+    # Fast: a=0.08, lambda=0.693 (half-life=1)
+    # Slow: a=0.04, lambda=0.0693 (half-life=10)
+    ic_vals = 0.08 * np.exp(-0.693 * horizons) + 0.04 * np.exp(-0.0693 * horizons)
+    res = estimate_bi_exponential_decay(pd.Series(ic_vals, index=horizons))
+    assert res["status"] == "ok"
+    assert res["r2"] > 0.99
+    assert res["half_life_fast"] < res["half_life_slow"]
+    assert np.isclose(res["half_life_fast"], 1.0, atol=0.2)
+    assert np.isclose(res["half_life_slow"], 10.0, atol=1.5)
+
+    # In decay family
+    fam = estimate_decay_family(pd.Series(ic_vals, index=horizons))
+    assert "bi_exponential" in fam["models"]
+    assert "bi_exponential" in fam["aic"]
+
 
 
 
