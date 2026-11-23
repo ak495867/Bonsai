@@ -88,16 +88,25 @@ def run_main() -> None:
     if args.tearsheet:
         tearsheet_dir = output / "tearsheets"
         top_ids = summary.sort_values("mean_ic", ascending=False).head(5)["strategy_id"]
+        adv_frame = panel.metadata["liquidity"].to_frame().T.reindex(panel.returns.index).ffill()
+        vol_frame = panel.metadata["volatility"].to_frame().T.reindex(panel.returns.index).ffill()
         for sid in top_ids:
             obs = results[sid]
             row_dict = summary[summary["strategy_id"] == sid].iloc[0].to_dict()
             h_ic = obs.ic_by_horizon.mean(axis=0)
+            cap_info = None
+            if args.simulate_pnl:
+                from .portfolio import strategy_capacity_curve
+                cap_info = strategy_capacity_curve(
+                    obs.signal, panel.returns, adv=adv_frame, volatility=vol_frame
+                )
             html = generate_tearsheet_html(
                 sid,
                 row_dict,
                 h_ic,
                 obs.decay,
                 pnl_df=obs.pnl,
+                capacity_info=cap_info,
             )
             save_tearsheet(html, tearsheet_dir / f"{sid}.html")
 

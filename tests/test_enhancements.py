@@ -19,6 +19,7 @@ from bonsai_alpha_decay import (
     estimate_exponential_decay,
     evaluate_strategy_cpcv,
     fit_driver_model,
+    generate_tearsheet_html,
     ic_hac_term_structure,
     ic_long_table,
     make_synthetic_panel,
@@ -318,6 +319,58 @@ def test_multiprocess_observatory_execution():
     assert len(summary) == 2
     assert set(results.keys()) == {"s_p1", "s_p2"}
     assert "net_sharpe" in summary.columns
+
+
+def test_multichart_tearsheet_svg(tmp_path: Path):
+    h_ic = pd.Series({1: 0.06, 2: 0.045, 3: 0.035, 5: 0.02, 10: 0.01})
+    decay_info = {"ic0": 0.06, "lambda": 0.15, "half_life": 4.62, "r2": 0.98}
+    decay_family = {
+        "best_model": "exponential",
+        "models": {
+            "power_law": {"ic0": 0.06, "alpha": 0.6},
+            "bi_exponential": {"a_fast": 0.04, "lambda_fast": 0.5, "a_slow": 0.02, "lambda_slow": 0.05},
+        },
+    }
+    pnl_df = pd.DataFrame(
+        {
+            "cum_gross": np.linspace(0, 0.25, 40),
+            "cum_net": np.linspace(0, 0.18, 40) - np.array([0.0 if i < 30 else 0.02 for i in range(40)]),
+        }
+    )
+    cap_info = {
+        "capacity_threshold_aum": 5e7,
+        "curve": [
+            {"aum": 1e6, "net_sharpe": 2.2},
+            {"aum": 1e7, "net_sharpe": 1.8},
+            {"aum": 1e8, "net_sharpe": 0.5},
+        ],
+    }
+    summary = {
+        "strategy_id": "test_multi",
+        "mean_ic": 0.06,
+        "net_sharpe": 1.8,
+        "crowding": 0.45,
+        "volatility": 0.02,
+        "liquidity": 1e7,
+    }
+    html = generate_tearsheet_html(
+        strategy_id="test_multi",
+        summary=summary,
+        ic_by_horizon=h_ic,
+        decay_info=decay_info,
+        pnl_df=pnl_df,
+        capacity_info=cap_info,
+        decay_family=decay_family,
+    )
+    assert "test_multi" in html
+    assert "Drawdown" in html
+    assert "Capital Capacity Curve" in html
+    assert "Systematic Driver Exposures" in html
+    assert html.count("<svg") >= 4
+    out_file = tmp_path / "multi_tearsheet.html"
+    out_file.write_text(html, encoding="utf-8")
+    assert out_file.exists()
+
 
 
 
