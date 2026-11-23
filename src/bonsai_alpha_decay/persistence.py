@@ -48,3 +48,35 @@ def read_frame(path: str | Path) -> pd.DataFrame:
     if ext == ".parquet":
         return pd.read_parquet(source)
     raise ValueError("supported frame formats are csv, json, and parquet")
+
+
+def save_market_panel(panel: Any, dir_path: str | Path) -> Path:
+    destination = Path(dir_path)
+    destination.mkdir(parents=True, exist_ok=True)
+    write_frame(panel.prices, destination / "prices.parquet")
+    write_frame(panel.returns, destination / "returns.parquet")
+    write_frame(panel.features, destination / "features.parquet")
+    write_frame(panel.metadata, destination / "metadata.parquet")
+    if panel.mask is not None:
+        write_frame(panel.mask, destination / "mask.parquet")
+    return destination
+
+
+def load_market_panel(dir_path: str | Path) -> Any:
+    from .models import MarketPanel
+
+    source = Path(dir_path)
+    prices = read_frame(source / "prices.parquet")
+    returns = read_frame(source / "returns.parquet")
+    features = read_frame(source / "features.parquet")
+    metadata = read_frame(source / "metadata.parquet")
+    mask_file = source / "mask.parquet"
+    mask = read_frame(mask_file) if mask_file.exists() else None
+    return MarketPanel(
+        prices=prices,
+        returns=returns,
+        features=features,
+        metadata=metadata,
+        mask=mask,
+    )
+

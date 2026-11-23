@@ -7,10 +7,12 @@ import pandas as pd
 
 def neutralize_signal(
     signal: pd.DataFrame,
-    factors: Mapping[str, pd.DataFrame],
+    factors: Mapping[str, pd.DataFrame] | pd.DataFrame,
     weights: pd.DataFrame | pd.Series | None = None,
 ) -> pd.DataFrame:
-    if not factors:
+    if isinstance(factors, pd.DataFrame):
+        factors = {"factor_0": factors}
+    if not len(factors):
         return signal.copy()
     for name, factor_df in factors.items():
         if not signal.index.equals(factor_df.index) or not signal.columns.equals(factor_df.columns):

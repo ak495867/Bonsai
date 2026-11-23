@@ -23,6 +23,7 @@ dev = ["pytest>=8.0"]
 [project.scripts]
 bonsai-generate = "bonsai_alpha_decay.cli:generate_main"
 bonsai-run = "bonsai_alpha_decay.cli:run_main"
+bonsai-ingest = "bonsai_alpha_decay.cli:ingest_main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

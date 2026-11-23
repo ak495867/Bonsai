@@ -43,6 +43,7 @@ def generate_main() -> None:
 def run_main() -> None:
     parser = argparse.ArgumentParser(prog="bonsai-run")
     _panel_config(parser)
+    parser.add_argument("--panel-dir", default=None, help="Path to pre-ingested MarketPanel directory")
     parser.add_argument("--count", type=int, default=500)
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--backend", choices=["thread", "process"], default="thread")
@@ -57,11 +58,20 @@ def run_main() -> None:
     parser.add_argument("--strategy-mode", choices=["random", "archetype", "informed"], default="random")
     args = parser.parse_args()
     output = Path(args.output)
-    config = SyntheticConfig(
-        n_days=args.days, n_assets=args.assets, n_features=args.features, seed=args.seed
-    )
-    panel = make_synthetic_panel(config)
-    feature_names = [f"feature_{index:02d}" for index in range(args.features)]
+    if args.panel_dir:
+        from .persistence import load_market_panel
+        panel = load_market_panel(args.panel_dir)
+        panel.validate()
+        feature_names = [c.split("__", 1)[1] for c in panel.features.columns if "__" in c]
+        if not feature_names:
+            feature_names = list(panel.features.columns)
+        feature_names = sorted(list(set(feature_names)))
+    else:
+        config = SyntheticConfig(
+            n_days=args.days, n_assets=args.assets, n_features=args.features, seed=args.seed
+        )
+        panel = make_synthetic_panel(config)
+        feature_names = [f"feature_{index:02d}" for index in range(args.features)]
     strategies = generate_strategies(feature_names, args.count, args.seed + 1, mode=args.strategy_mode)
     summary, results = run_observatory(
         panel,
@@ -138,6 +148,24 @@ def run_main() -> None:
     ]
     top = summary.sort_values("mean_ic", ascending=False).head(10)[display_cols]
     print(top.to_string(index=False))
+
+
+def ingest_main() -> None:
+    parser = argparse.ArgumentParser(prog="bonsai-ingest")
+    parser.add_argument("--input-dir", required=True, help="Directory containing daily bar files")
+    parser.add_argument("--output-dir", required=True, help="Output directory for saved MarketPanel")
+    parser.add_argument("--format", choices=["parquet", "csv"], default="parquet", help="Input file format")
+    parser.add_argument("--delisting-penalty", type=float, default=-0.35, help="Return penalty on asset delisting")
+    args = parser.parse_args()
+
+    from .ingestion import build_panel_from_daily_bars, read_daily_bars_from_directory
+    from .persistence import save_market_panel
+
+    bars = read_daily_bars_from_directory(args.input_dir, file_format=args.format)
+    panel = build_panel_from_daily_bars(bars, default_delisting_return=args.delisting_penalty)
+    panel.validate()
+    out = save_market_panel(panel, args.output_dir)
+    print(f"Successfully ingested {len(panel.prices)} dates x {len(panel.prices.columns)} assets into {out}")
 
 
 if __name__ == "__main__":

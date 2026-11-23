@@ -29,11 +29,13 @@ from bonsai_alpha_decay import (
     ic_hac_term_structure,
     ic_long_table,
     ledoit_wolf_shrinkage,
+    load_market_panel,
     make_synthetic_panel,
     neutralize_signal,
     newey_west_ic_stats,
     optimize_portfolio_weights,
     run_observatory,
+    save_market_panel,
     save_master_report,
     simulate_long_short_pnl,
     simulate_optimized_portfolio_pnl,
@@ -594,4 +596,21 @@ def test_master_observatory_report(tmp_path: Path):
     saved = save_master_report(html, report_path)
     assert saved.exists()
     assert saved.stat().st_size > 500
+
+
+def test_market_panel_persistence(tmp_path: Path):
+    panel = make_synthetic_panel(
+        SyntheticConfig(n_days=25, n_assets=8, n_features=2, seed=42)
+    )
+    panel_dir = tmp_path / "panel_dir"
+    save_market_panel(panel, panel_dir)
+
+    loaded = load_market_panel(panel_dir)
+    loaded.validate()
+    assert loaded.prices.shape == panel.prices.shape
+    assert loaded.returns.shape == panel.returns.shape
+    assert loaded.features.shape == panel.features.shape
+    assert loaded.metadata.shape == panel.metadata.shape
+    assert np.allclose(loaded.prices.values, panel.prices.values)
+
 
