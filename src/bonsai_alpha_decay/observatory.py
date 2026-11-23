@@ -32,6 +32,7 @@ def evaluate_strategy(
     simulate_pnl: bool = False,
     cost_bps: float = 5.0,
     return_mode: str = "cumulative",
+    weighting_scheme: str = "quantile",
 ) -> ObservedStrategy:
     signal = build_signal(panel, spec)
     forward = (
@@ -70,7 +71,12 @@ def evaluate_strategy(
 
     pnl_df = None
     if simulate_pnl:
-        pnl_df = simulate_long_short_pnl(signal, panel.returns, cost_bps=cost_bps)
+        pnl_df = simulate_long_short_pnl(
+            signal,
+            panel.returns,
+            cost_bps=cost_bps,
+            weighting_scheme=weighting_scheme,
+        )
         gross_stats = portfolio_performance_stats(pnl_df["gross_pnl"])
         net_stats = portfolio_performance_stats(pnl_df["net_pnl"])
         stats_dict["gross_sharpe"] = gross_stats["sharpe_ratio"]
@@ -123,6 +129,7 @@ def run_observatory(
     simulate_pnl: bool = False,
     cost_bps: float = 5.0,
     return_mode: str = "cumulative",
+    weighting_scheme: str = "quantile",
 ) -> tuple[pd.DataFrame, dict[str, ObservedStrategy]]:
     panel.validate()
     specs = list(strategies)
@@ -144,6 +151,7 @@ def run_observatory(
         simulate_pnl=simulate_pnl,
         cost_bps=cost_bps,
         return_mode=return_mode,
+        weighting_scheme=weighting_scheme,
     )
     if workers == 1:
         evaluated = [evaluate(spec) for spec in specs]

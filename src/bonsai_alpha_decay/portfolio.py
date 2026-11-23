@@ -5,6 +5,78 @@ import numpy as np
 import pandas as pd
 
 
+def build_portfolio_weights(
+    signal: pd.DataFrame,
+    weighting_scheme: str = "quantile",
+    quantiles: int = 5,
+    volatility: pd.DataFrame | None = None,
+    target_leverage: float = 1.0,
+) -> pd.DataFrame:
+    valid_schemes = {"quantile", "zscore", "vol_parity", "inverse_vol", "linear_rank"}
+    if weighting_scheme not in valid_schemes:
+        raise ValueError(
+            f"weighting_scheme '{weighting_scheme}' must be one of {sorted(valid_schemes)}"
+        )
+    if quantiles < 2:
+        raise ValueError("quantiles must be at least 2")
+
+    if weighting_scheme == "quantile":
+        ranks = signal.rank(axis=1, pct=True)
+        long_thresh = 1.0 - (1.0 / quantiles)
+        short_thresh = 1.0 / quantiles
+        longs = (ranks >= long_thresh).astype(float)
+        shorts = (ranks <= short_thresh).astype(float)
+        long_denom = longs.sum(axis=1).replace(0.0, np.nan)
+        short_denom = shorts.sum(axis=1).replace(0.0, np.nan)
+        long_w = longs.div(long_denom, axis=0).fillna(0.0) * target_leverage
+        short_w = shorts.div(short_denom, axis=0).fillna(0.0) * target_leverage
+        return long_w - short_w
+
+    if weighting_scheme == "zscore":
+        mean_s = signal.mean(axis=1)
+        std_s = signal.std(axis=1).replace(0.0, np.nan)
+        z = signal.sub(mean_s, axis=0).div(std_s, axis=0).fillna(0.0)
+        pos = z.clip(lower=0.0)
+        neg = (-z).clip(lower=0.0)
+        pos_sum = pos.sum(axis=1).replace(0.0, np.nan)
+        neg_sum = neg.sum(axis=1).replace(0.0, np.nan)
+        long_w = pos.div(pos_sum, axis=0).fillna(0.0) * target_leverage
+        short_w = neg.div(neg_sum, axis=0).fillna(0.0) * target_leverage
+        return long_w - short_w
+
+    if weighting_scheme in {"vol_parity", "inverse_vol"}:
+        vol_clean = (
+            volatility.reindex(index=signal.index, columns=signal.columns)
+            .replace(0.0, np.nan)
+            .fillna(0.02)
+            if volatility is not None
+            else pd.DataFrame(0.02, index=signal.index, columns=signal.columns)
+        )
+        vol_adj_sig = signal.div(vol_clean, axis=0)
+        mean_s = vol_adj_sig.mean(axis=1)
+        centered = vol_adj_sig.sub(mean_s, axis=0).fillna(0.0)
+        pos = centered.clip(lower=0.0)
+        neg = (-centered).clip(lower=0.0)
+        pos_sum = pos.sum(axis=1).replace(0.0, np.nan)
+        neg_sum = neg.sum(axis=1).replace(0.0, np.nan)
+        long_w = pos.div(pos_sum, axis=0).fillna(0.0) * target_leverage
+        short_w = neg.div(neg_sum, axis=0).fillna(0.0) * target_leverage
+        return long_w - short_w
+
+    if weighting_scheme == "linear_rank":
+        ranks = signal.rank(axis=1, pct=True)
+        centered = ranks.sub(ranks.mean(axis=1), axis=0).fillna(0.0)
+        pos = centered.clip(lower=0.0)
+        neg = (-centered).clip(lower=0.0)
+        pos_sum = pos.sum(axis=1).replace(0.0, np.nan)
+        neg_sum = neg.sum(axis=1).replace(0.0, np.nan)
+        long_w = pos.div(pos_sum, axis=0).fillna(0.0) * target_leverage
+        short_w = neg.div(neg_sum, axis=0).fillna(0.0) * target_leverage
+        return long_w - short_w
+
+    raise ValueError(f"unsupported weighting_scheme: {weighting_scheme}")
+
+
 def simulate_long_short_pnl(
     signal: pd.DataFrame,
     returns: pd.DataFrame,
@@ -15,21 +87,18 @@ def simulate_long_short_pnl(
     volatility: pd.DataFrame | None = None,
     impact_gamma: float = 0.0,
     borrow_fee_bps: float = 50.0,
+    weighting_scheme: str = "quantile",
+    target_leverage: float = 1.0,
 ) -> pd.DataFrame:
     if not signal.index.equals(returns.index) or not signal.columns.equals(returns.columns):
         raise ValueError("signal and returns must share identical index and columns")
-    if quantiles < 2:
-        raise ValueError("quantiles must be at least 2")
-    ranks = signal.rank(axis=1, pct=True)
-    long_thresh = 1.0 - (1.0 / quantiles)
-    short_thresh = 1.0 / quantiles
-    longs = (ranks >= long_thresh).astype(float)
-    shorts = (ranks <= short_thresh).astype(float)
-    long_denom = longs.sum(axis=1).replace(0.0, np.nan)
-    short_denom = shorts.sum(axis=1).replace(0.0, np.nan)
-    long_w = longs.div(long_denom, axis=0).fillna(0.0)
-    short_w = shorts.div(short_denom, axis=0).fillna(0.0)
-    net_w = long_w - short_w
+    net_w = build_portfolio_weights(
+        signal=signal,
+        weighting_scheme=weighting_scheme,
+        quantiles=quantiles,
+        volatility=volatility,
+        target_leverage=target_leverage,
+    )
     active_weights = net_w.shift(1).fillna(0.0)
     gross_pnl = (active_weights * returns).sum(axis=1)
 

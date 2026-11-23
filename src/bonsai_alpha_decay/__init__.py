@@ -24,6 +24,7 @@ from .observatory import (
     strategy_specs_to_frame,
 )
 from .portfolio import (
+    build_portfolio_weights,
     optimal_holding_horizon,
     portfolio_performance_stats,
     simulate_long_short_pnl,
@@ -48,6 +49,7 @@ __all__ = [
     "benjamini_hochberg_fdr",
     "bootstrap_decay",
     "build_ic_table",
+    "build_portfolio_weights",
     "build_signal",
     "calculate_turnover",
     "cross_sectional_ic",

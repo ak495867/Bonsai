@@ -8,6 +8,7 @@ from bonsai_alpha_decay import (
     MarketPanel,
     StrategySpec,
     SyntheticConfig,
+    build_portfolio_weights,
     build_signal,
     calculate_turnover,
     estimate_exponential_decay,
@@ -17,6 +18,7 @@ from bonsai_alpha_decay import (
     make_synthetic_panel,
     newey_west_ic_stats,
     run_observatory,
+    simulate_long_short_pnl,
 )
 from bonsai_alpha_decay.persistence import read_frame, write_frame
 
@@ -124,4 +126,38 @@ def test_ic_hac_term_structure():
     assert "lag" in term_struct.columns
     # Horizon 5 should have a lag of at least 4 due to MA(h-1)
     assert term_struct.loc[5, "lag"] >= 4
+
+
+def test_portfolio_weighting_schemes():
+    dates = pd.bdate_range("2024-01-01", periods=10)
+    assets = ["A", "B", "C", "D", "E"]
+    signal = pd.DataFrame(
+        [[1.0, 2.0, 3.0, 4.0, 5.0]] * 10,
+        index=dates,
+        columns=assets,
+    )
+    returns = pd.DataFrame(0.01, index=dates, columns=assets)
+    returns["E"] = 0.04
+    returns["A"] = -0.02
+
+    # Z-score weighting
+    w_z = build_portfolio_weights(signal, weighting_scheme="zscore", target_leverage=1.0)
+    assert np.allclose(w_z.sum(axis=1), 0.0)
+    assert np.allclose(w_z.abs().sum(axis=1), 2.0)
+    sim_z = simulate_long_short_pnl(signal, returns, weighting_scheme="zscore")
+    assert "net_pnl" in sim_z.columns
+    assert sim_z["gross_pnl"].iloc[-1] > 0
+
+    # Vol-parity weighting
+    vol = pd.DataFrame(
+        [[0.01, 0.02, 0.015, 0.03, 0.01]] * 10,
+        index=dates,
+        columns=assets,
+    )
+    w_vol = build_portfolio_weights(signal, weighting_scheme="vol_parity", volatility=vol)
+    assert np.allclose(w_vol.sum(axis=1), 0.0)
+    assert np.allclose(w_vol.abs().sum(axis=1), 2.0)
+    sim_vol = simulate_long_short_pnl(signal, returns, weighting_scheme="vol_parity", volatility=vol)
+    assert "net_pnl" in sim_vol.columns
+
 
