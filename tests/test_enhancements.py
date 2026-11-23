@@ -19,6 +19,7 @@ from bonsai_alpha_decay import (
     ic_hac_term_structure,
     ic_long_table,
     make_synthetic_panel,
+    neutralize_signal,
     newey_west_ic_stats,
     run_observatory,
     simulate_long_short_pnl,
@@ -217,6 +218,36 @@ def test_bi_exponential_decay():
     fam = estimate_decay_family(pd.Series(ic_vals, index=horizons))
     assert "bi_exponential" in fam["models"]
     assert "bi_exponential" in fam["aic"]
+
+
+def test_vectorized_wls_factor_neutralization():
+    dates = pd.bdate_range("2024-01-01", periods=20)
+    assets = [f"A{i}" for i in range(10)]
+    np.random.seed(42)
+    sig_data = np.random.normal(size=(20, 10))
+    fac_data = np.random.normal(size=(20, 10))
+    weights_data = np.random.uniform(1.0, 10.0, size=(20, 10))
+
+    signal = pd.DataFrame(sig_data, index=dates, columns=assets)
+    factors = {"market": pd.DataFrame(fac_data, index=dates, columns=assets)}
+    weights = pd.DataFrame(weights_data, index=dates, columns=assets)
+
+    # Vectorized OLS (equal weights)
+    res_ols = neutralize_signal(signal, factors)
+    assert res_ols.shape == signal.shape
+    # Check that residual is orthogonal to factor
+    for t in range(len(dates)):
+        dot_prod = np.dot(res_ols.iloc[t], factors["market"].iloc[t])
+        assert np.isclose(dot_prod, 0.0, atol=1e-10)
+
+    # Vectorized WLS (market-cap weights)
+    res_wls = neutralize_signal(signal, factors, weights=weights)
+    assert res_wls.shape == signal.shape
+    for t in range(len(dates)):
+        w = weights.iloc[t].to_numpy()
+        w_dot = np.dot(res_wls.iloc[t] * w, factors["market"].iloc[t])
+        assert np.isclose(w_dot, 0.0, atol=1e-10)
+
 
 
 
